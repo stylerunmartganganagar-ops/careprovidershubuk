@@ -158,6 +158,10 @@ export function SellerDashboardHeader() {
                         <DollarSign className="mr-2 h-4 w-4" />
                         Earnings
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate('/seller/payment-methods')}>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        Payment Methods
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => navigate('/favorites')}>
                         <Heart className="mr-2 h-4 w-4" />
                         Saved Projects

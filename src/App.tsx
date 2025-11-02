@@ -22,11 +22,12 @@ import PostProject from "./pages/PostProject";
 import CreateService from "./pages/CreateService";
 import MyOrders from "./pages/MyOrders";
 import SavedServices from "./pages/SavedServices";
-import SellerEarnings from "./pages/SellerEarnings";
-import SellerManageOrders from "./pages/SellerManageOrders";
-import SellerUpdateProfile from "./pages/SellerUpdateProfile";
-import AddPortfolio from "./pages/AddPortfolio";
-import ManagePortfolio from "./pages/ManagePortfolio";
+import SellerEarnings from './pages/SellerEarnings';
+import SellerManageOrders from './pages/SellerManageOrders';
+import SellerUpdateProfile from './pages/SellerUpdateProfile';
+import AddPortfolio from './pages/AddPortfolio';
+import ManagePortfolio from './pages/ManagePortfolio';
+import SellerPaymentMethods from './pages/SellerPaymentMethods';
 import PaymentHistory from "./pages/PaymentHistory";
 import AllServicesPage from "./pages/AllServicesPage";
 import RecentActivityPage from "./pages/RecentActivityPage";
@@ -95,6 +96,7 @@ const App = () => (
                 <Route path="/seller/update-profile" element={<SellerUpdateProfile />} />
                 <Route path="/seller/add-portfolio" element={<AddPortfolio />} />
                 <Route path="/seller/portfolio" element={<ManagePortfolio />} />
+                <Route path="/seller/payment-methods" element={<SellerPaymentMethods />} />
                 <Route
                   path="/home/:userid"
                   element={

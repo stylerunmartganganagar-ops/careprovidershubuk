@@ -6,7 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Avatar } from '../components/ui/avatar';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Send } from 'lucide-react';
+import { Send, Plus, Target } from 'lucide-react';
+import { useAuth } from '../lib/auth.tsx';
+import { CreateOfferDialog } from '../components/CreateOfferDialog';
+import { CreateMilestonesDialog } from '../components/CreateMilestonesDialog';
 
 interface ChatItem {
   id: string;
@@ -33,6 +36,7 @@ const conversation: Record<string, Message[]> = {};
 export default function MessagesPage() {
   const [activeChat, setActiveChat] = useState<string>('c2');
   const [input, setInput] = useState('');
+  const { user } = useAuth();
 
   const activeMsgs = useMemo(() => conversation[activeChat] ?? [], [activeChat]);
 
@@ -82,9 +86,36 @@ export default function MessagesPage() {
                         </div>
                       ))}
                     </div>
-                    <div className="p-3 border-t flex gap-2">
-                      <Input value={input} onChange={e=>setInput(e.target.value)} placeholder="Type a message..." />
-                      <Button onClick={()=>setInput('')}><Send className="h-4 w-4" /></Button>
+                    <div className="p-3 border-t">
+                      {/* Action buttons for sellers */}
+                      {user?.role === 'provider' && (
+                        <div className="flex gap-2 mb-3">
+                          <CreateOfferDialog
+                            projectId={activeChat} // Using activeChat as project ID for now
+                            buyerId="buyer-id" // This should be dynamically determined
+                            trigger={
+                              <Button variant="outline" size="sm" className="flex-1">
+                                <Plus className="h-4 w-4 mr-2" />
+                                Create Offer
+                              </Button>
+                            }
+                          />
+                          <CreateMilestonesDialog
+                            offerId="offer-id" // This should be dynamically determined
+                            trigger={
+                              <Button variant="outline" size="sm" className="flex-1">
+                                <Target className="h-4 w-4 mr-2" />
+                                Create Milestones
+                              </Button>
+                            }
+                          />
+                        </div>
+                      )}
+                      {/* Message input */}
+                      <div className="flex gap-2">
+                        <Input value={input} onChange={e=>setInput(e.target.value)} placeholder="Type a message..." />
+                        <Button onClick={()=>setInput('')}><Send className="h-4 w-4" /></Button>
+                      </div>
                     </div>
                   </div>
                 </div>
