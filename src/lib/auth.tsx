@@ -5,6 +5,7 @@ import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 interface User {
   id: string;
   name: string;
+  username: string;
   email: string;
   avatar: string;
   role: 'client' | 'provider' | 'admin';
@@ -113,6 +114,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const initialUserData: User = {
       id: supabaseUser.id,
       name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+      username: supabaseUser.user_metadata?.username || '', // Will be filled by hook
       email: supabaseUser.email || '',
       avatar: supabaseUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.id}`,
       role: supabaseUser.user_metadata?.role || 'client',
@@ -136,13 +138,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { data: profile, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
 
       if (error && error.code === 'PGRST116') {
-        // Profile doesn't exist, create it
+        // Profile doesn't exist, create it with username
+        const username = generateUsername();
+        console.log(`Creating profile with username: ${username} for user ${supabaseUser.id}`);
+
         const { data: newProfile, error: insertError } = await supabase
           .from('users')
           .upsert({
             id: supabaseUser.id,
             email: supabaseUser.email,
             name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+            username: username, // Always create username during profile creation
             role: supabaseUser.user_metadata?.role || 'client',
             avatar: supabaseUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.id}`,
           }, { onConflict: 'id' })
@@ -153,18 +159,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const updatedUserData: User = {
             id: supabaseUser.id,
             name: newProfile.name || initialUserData.name,
+            username: newProfile.username || username, // Should always have username
             email: supabaseUser.email || '',
             avatar: newProfile.avatar || initialUserData.avatar,
             role: newProfile.role || initialUserData.role,
           };
           setUser(updatedUserData);
-          console.log('Updated user with profile data:', updatedUserData);
+          console.log('Created new profile with username:', updatedUserData.username);
+        } else {
+          console.error('Failed to create profile with username:', insertError);
         }
       } else if (!error && profile) {
         // Profile exists, update user data
         const updatedUserData: User = {
           id: supabaseUser.id,
           name: profile.name || initialUserData.name,
+          username: profile.username || initialUserData.username,
           email: supabaseUser.email || '',
           avatar: profile.avatar || initialUserData.avatar,
           role: profile.role || initialUserData.role,
@@ -209,12 +219,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.user && role === 'admin') {
         console.log('Creating admin profile immediately...');
         try {
+          const adminUsername = generateUsername();
+          console.log(`Creating admin profile with username: ${adminUsername}`);
+
           const { error: profileError } = await supabase
             .from('users')
             .upsert({
               id: data.user.id,
               email,
               name,
+              username: adminUsername, // Generate username for admin
               role: 'admin', // Explicitly set admin role
               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
             }, { onConflict: 'id' });

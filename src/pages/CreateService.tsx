@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../lib/auth.tsx';
+import { uploadToCloudinary, testCloudinaryConnection } from '../lib/cloudinary';
 import { SellerDashboardHeader } from '../components/SellerDashboardHeader';
 import { Footer } from '../components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -9,10 +11,16 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { Label } from '../components/ui/label';
-import { ArrowLeft, Plus, X, DollarSign, Clock, Users, AlertCircle, Tag } from 'lucide-react';
+import { ArrowLeft, Plus, X, DollarSign, Clock, Users, AlertCircle, Tag, ImageIcon } from 'lucide-react';
+import { useCreateService, useUpdateService } from '../hooks/useProjects';
+import { toast } from 'sonner';
 
 export default function CreateService() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { createService, loading: hookLoading } = useCreateService();
+  const { updateService } = useUpdateService();
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     header: '',
     description: '',
@@ -20,10 +28,12 @@ export default function CreateService() {
     hourlyRate: '',
     experience: '',
     keywords: [] as string[],
-    portfolioItems: 0,
     languages: [] as string[],
     availability: 'full-time',
-    responseTime: '24'
+    responseTime: '24',
+    images: [] as File[], // Add images array
+    imagePreviewUrls: [] as string[], // Add preview URLs array
+    portfolioItems: ''
   });
 
   const [keywordInput, setKeywordInput] = useState('');
@@ -109,6 +119,69 @@ export default function CreateService() {
     }));
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length + formData.images.length > 4) {
+      toast.error('You can upload up to 4 images only');
+      return;
+    }
+
+    // Check file types and sizes
+    const validFiles = files.filter(file => {
+      if (!file.type.startsWith('image/')) {
+        toast.error(`${file.name} is not a valid image file`);
+        return false;
+      }
+      
+      // Only allow supported image formats
+      const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      if (!supportedTypes.includes(file.type)) {
+        toast.error(`${file.name}: ${file.type} is not supported. Please use JPEG, PNG, WebP, or GIF.`);
+        return false;
+      }
+      
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        toast.error(`${file.name} is too large. Maximum size is 5MB`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validFiles.length === 0) return;
+
+    // Create data URLs for preview
+    const newPreviewUrls: string[] = [];
+    let processedCount = 0;
+
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        newPreviewUrls.push(e.target?.result as string);
+        processedCount++;
+
+        // When all files are processed, update state
+        if (processedCount === validFiles.length) {
+          setFormData(prev => ({
+            ...prev,
+            images: [...prev.images, ...validFiles],
+            imagePreviewUrls: [...prev.imagePreviewUrls, ...newPreviewUrls]
+          }));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (indexToRemove: number) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, index) => index !== indexToRemove),
+      imagePreviewUrls: prev.imagePreviewUrls.filter((_, index) => index !== indexToRemove)
+    }));
+  };
+
+  // No cleanup needed for data URLs (they're automatically garbage collected)
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
@@ -126,14 +199,79 @@ export default function CreateService() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (validateForm()) {
-      // TODO: Submit service to API
-      console.log('Service created:', formData);
-      // Navigate back to seller dashboard
-      navigate('/home/sellers/123'); // TODO: Use actual seller ID
+    if (!validateForm() || !user?.id) return;
+
+    setLoading(true);
+
+    try {
+      // Create service immediately with basic data
+      const serviceData = {
+        provider_id: user.id,
+        title: formData.header || 'Test Service',
+        description: formData.description || 'Test description',
+        category: formData.category || 'CQC Registration',
+        price: parseFloat(formData.hourlyRate) || 100,
+        delivery_time: '1 day',
+        revisions: 1,
+        tags: formData.keywords.length > 0 ? formData.keywords : ['test'],
+        images: [], // Empty initially, will be updated in background
+        is_active: true,
+        approval_status: 'pending'
+      };
+
+      // Submit form immediately
+      const newService = await createService(serviceData);
+      console.log('Service created successfully:', newService);
+
+      // Show success and redirect immediately
+      toast.success('Service created successfully!');
+
+      // Upload images in background if any
+      if (formData.images.length > 0) {
+        console.log('Starting background image upload...');
+
+        // Process images in background without blocking UI
+        setTimeout(async () => {
+          try {
+            const imageUrls: string[] = [];
+            for (const image of formData.images) {
+              try {
+                const imageUrl = await uploadToCloudinary(image, {
+                  folder: 'services',
+                  public_id: `service_${user.id}_${Date.now()}_${image.name.split('.')[0]}`
+                });
+                imageUrls.push(imageUrl);
+              } catch (error) {
+                console.error('Background image upload error:', error);
+              }
+            }
+
+            // Update service with image URLs if any were uploaded successfully
+            if (imageUrls.length > 0) {
+              try {
+                await updateService(newService.id, { images: imageUrls });
+                console.log('Images uploaded and service updated successfully');
+                toast.success('Images uploaded successfully!');
+              } catch (updateError) {
+                console.error('Failed to update service with images:', updateError);
+              }
+            }
+          } catch (error) {
+            console.error('Background upload failed:', error);
+          }
+        }, 100); // Small delay to ensure service creation completes first
+      }
+
+      // Navigate immediately
+      navigate('/seller/services');
+
+    } catch (error) {
+      console.error('Failed to create service:', error);
+      toast.error('Failed to create service. Please try again.');
+      setLoading(false);
     }
   };
 
@@ -284,6 +422,71 @@ export default function CreateService() {
                         {errors.keywords}
                       </p>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Image Upload */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <ImageIcon className="h-5 w-5 mr-2" />
+                    Service Images (Optional)
+                  </CardTitle>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Upload up to 4 images to showcase your service (Max 5MB each)
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {/* Image Upload Button */}
+                    <div className="flex items-center justify-center">
+                      <label htmlFor="image-upload" className="cursor-pointer">
+                        <div className="flex items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors">
+                          <div className="text-center">
+                            <Plus className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-600">Click to upload images</p>
+                            <p className="text-xs text-gray-500">JPEG, PNG, WebP, GIF up to 5MB</p>
+                          </div>
+                        </div>
+                        <input
+                          id="image-upload"
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {/* Image Preview Grid */}
+                    {formData.images.length > 0 && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {formData.imagePreviewUrls.map((previewUrl, index) => (
+                          <div key={index} className="relative group">
+                            <div className="aspect-square rounded-lg overflow-hidden border">
+                              <img
+                                src={previewUrl}
+                                alt={`Upload ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeImage(index)}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-sm text-gray-500 text-center">
+                      {formData.images.length}/4 images uploaded
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -448,9 +651,18 @@ export default function CreateService() {
               {/* Submit */}
               <Card>
                 <CardContent className="pt-6">
-                  <Button type="submit" className="w-full" size="lg">
-                    <Plus className="mr-2 h-5 w-5" />
-                    Create Service
+                  <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Creating Service...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="mr-2 h-5 w-5" />
+                        Create Service
+                      </>
+                    )}
                   </Button>
                   <p className="text-sm text-gray-500 text-center mt-2">
                     Your service will be reviewed before being published

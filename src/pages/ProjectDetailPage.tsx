@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
+import { supabase } from '../lib/supabase';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Footer } from '../components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -10,6 +11,7 @@ import { Avatar } from '../components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Textarea } from '../components/ui/textarea';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import {
   ArrowLeft,
   Calendar,
@@ -23,7 +25,7 @@ import {
   Send,
   User
 } from 'lucide-react';
-import { useProjectDetail, useProjectBids, useProjectMessages } from '../hooks/useProjects';
+import { useProjectDetail, useProjectBids, useProjectMessages, useUpdateBidStatus, useSendMessage } from '../hooks/useProjects';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,10 +33,20 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('bids');
   const [messageContent, setMessageContent] = useState('');
+  const [selectedRecipient, setSelectedRecipient] = useState<string | null>(null);
+
+  // Dialog states
+  const [broadcastDialogOpen, setBroadcastDialogOpen] = useState(false);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [extendDialogOpen, setExtendDialogOpen] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [newDeadline, setNewDeadline] = useState('');
 
   const { project, loading: projectLoading, error: projectError } = useProjectDetail(id);
   const { bids, loading: bidsLoading } = useProjectBids(id);
   const { messages, loading: messagesLoading } = useProjectMessages(id);
+  const { updateBidStatus, loading: updateLoading } = useUpdateBidStatus();
+  const { sendMessage, loading: sendLoading } = useSendMessage();
 
   if (projectLoading) {
     return (
@@ -63,11 +75,40 @@ export default function ProjectDetailPage() {
   // Check if user is the project owner
   const isOwner = project.user_id === user?.id;
 
+  const handleAcceptBid = async (bidId: string) => {
+    // ... (rest of the handler)
+  };
+
+  const handleRejectBid = async (bidId: string) => {
+    // ... (rest of the handler)
+  };
+
+  const handleMessageBidder = (bidderId: string) => {
+    // ... (rest of the handler)
+  };
+
+  const handleSendMessage = async () => {
+    // ... (rest of the handler)
+  };
+
+  const handleBroadcastMessage = async () => {
+    // ... (rest of the handler)
+  };
+
+  const handleInviteSellers = async () => {
+    // ... (rest of the handler)
+  };
+
+  const handleExtendDeadline = async () => {
+    // ... (rest of the handler)
+  };
+
   return (
     <DashboardLayout>
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
+          {/* ... (rest of the JSX) */}
           <div className="flex items-center space-x-4">
             <Button
               variant="ghost"
@@ -227,13 +268,13 @@ export default function ProjectDetailPage() {
                             </div>
                             {isOwner && bid.status === 'pending' && (
                               <div className="flex space-x-2 mt-4">
-                                <Button size="sm" variant="outline">
+                                <Button size="sm" variant="outline" onClick={() => handleAcceptBid(bid.id)}>
                                   Accept Bid
                                 </Button>
-                                <Button size="sm" variant="outline">
+                                <Button size="sm" variant="outline" onClick={() => handleRejectBid(bid.id)}>
                                   Reject Bid
                                 </Button>
-                                <Button size="sm" variant="ghost">
+                                <Button size="sm" variant="ghost" onClick={() => handleMessageBidder(bid.seller_id)}>
                                   Message
                                 </Button>
                               </div>
@@ -289,7 +330,7 @@ export default function ProjectDetailPage() {
                             onChange={(e) => setMessageContent(e.target.value)}
                             className="flex-1"
                           />
-                          <Button size="sm">
+                          <Button size="sm" onClick={handleSendMessage}>
                             <Send className="h-4 w-4" />
                           </Button>
                         </div>
@@ -304,7 +345,7 @@ export default function ProjectDetailPage() {
                             onChange={(e) => setMessageContent(e.target.value)}
                             className="flex-1"
                           />
-                          <Button size="sm">
+                          <Button size="sm" onClick={handleSendMessage}>
                             <Send className="h-4 w-4" />
                           </Button>
                         </div>
@@ -347,15 +388,15 @@ export default function ProjectDetailPage() {
                 <CardTitle>Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start">
+                <Button variant="outline" className="w-full justify-start" onClick={() => setBroadcastDialogOpen(true)}>
                   <MessageSquare className="h-4 w-4 mr-2" />
                   Send Broadcast Message
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
+                <Button variant="outline" className="w-full justify-start" onClick={() => setInviteDialogOpen(true)}>
                   <User className="h-4 w-4 mr-2" />
                   Invite Specific Sellers
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
+                <Button variant="outline" className="w-full justify-start" onClick={() => setExtendDialogOpen(true)}>
                   <Calendar className="h-4 w-4 mr-2" />
                   Extend Deadline
                 </Button>
@@ -365,6 +406,77 @@ export default function ProjectDetailPage() {
         </div>
       </div>
       <Footer />
+
+      {/* Broadcast Message Dialog */}
+      <Dialog open={broadcastDialogOpen} onOpenChange={setBroadcastDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Broadcast Message</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              placeholder="Enter your broadcast message..."
+              value={broadcastMessage}
+              onChange={(e) => setBroadcastMessage(e.target.value)}
+              rows={4}
+            />
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setBroadcastDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleBroadcastMessage}>
+                Send Broadcast
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite Sellers Dialog */}
+      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite Specific Sellers</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p>Select sellers to invite to this project.</p>
+            {/* Placeholder: Add seller selection UI */}
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleInviteSellers}>
+                Send Invites
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend Deadline Dialog */}
+      <Dialog open={extendDialogOpen} onOpenChange={setExtendDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Extend Deadline</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <input
+              type="date"
+              value={newDeadline}
+              onChange={(e) => setNewDeadline(e.target.value)}
+              className="w-full p-2 border rounded"
+            />
+            <div className="flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setExtendDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleExtendDeadline}>
+                Extend Deadline
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

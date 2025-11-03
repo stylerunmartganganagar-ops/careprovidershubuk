@@ -25,6 +25,7 @@ import SavedServices from "./pages/SavedServices";
 import SellerEarnings from './pages/SellerEarnings';
 import SellerManageOrders from './pages/SellerManageOrders';
 import SellerUpdateProfile from './pages/SellerUpdateProfile';
+import SellerServices from './pages/SellerServices';
 import AddPortfolio from './pages/AddPortfolio';
 import ManagePortfolio from './pages/ManagePortfolio';
 import SellerPaymentMethods from './pages/SellerPaymentMethods';
@@ -33,6 +34,7 @@ import AllServicesPage from "./pages/AllServicesPage";
 import RecentActivityPage from "./pages/RecentActivityPage";
 import UserProfile from "./pages/UserProfile";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
+import BidProject from "./pages/BidProject";
 import MyProjectsPage from "./pages/MyProjectsPage";
 import AccountSettings from "./pages/AccountSettings";
 import PaymentMethods from "./pages/PaymentMethods";
@@ -46,6 +48,7 @@ import AdminPanel from "./pages/AdminPanel";
 import AuthCallback from "./pages/AuthCallback";
 import VerificationSuccess from "./pages/VerificationSuccess";
 import AdminSignup from "./pages/AdminSignup";
+import ServiceDetail from "./pages/ServiceDetail";
 import Home from "./pages/Home";
 
 const queryClient = new QueryClient();
@@ -94,6 +97,7 @@ const App = () => (
                 <Route path="/seller/earnings" element={<SellerEarnings />} />
                 <Route path="/seller/manage-orders" element={<SellerManageOrders />} />
                 <Route path="/seller/update-profile" element={<SellerUpdateProfile />} />
+                <Route path="/seller/services" element={<SellerServices />} />
                 <Route path="/seller/add-portfolio" element={<AddPortfolio />} />
                 <Route path="/seller/portfolio" element={<ManagePortfolio />} />
                 <Route path="/seller/payment-methods" element={<SellerPaymentMethods />} />
@@ -114,11 +118,20 @@ const App = () => (
                   }
                 />
                 <Route path="/seller/:id" element={<SellerProfile />} />
+                <Route path="/service/:id" element={<ServiceDetail />} />
                 <Route
                   path="/project/:id"
                   element={
                     <ProtectedRoute>
                       <ProjectDetailPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/project/:id/bid"
+                  element={
+                    <ProtectedRoute>
+                      <BidProject />
                     </ProtectedRoute>
                   }
                 />

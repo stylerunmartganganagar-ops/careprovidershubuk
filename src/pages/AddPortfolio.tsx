@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useAuth } from '../lib/auth.tsx';
+import { uploadToCloudinary } from '../lib/cloudinary';
 import { useNavigate } from 'react-router-dom';
 import { SellerDashboardHeader } from '../components/SellerDashboardHeader';
 import { Footer } from '../components/Footer';
@@ -19,11 +21,18 @@ import {
   Save,
   AlertCircle,
   FileText,
-  Eye
+  Eye,
+  Loader2
 } from 'lucide-react';
+
+import { useCreatePortfolio, useUpdatePortfolio } from '../hooks/useProjects';
+import { toast } from 'sonner';
 
 export default function AddPortfolio() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { createPortfolio, loading } = useCreatePortfolio();
+  const { updatePortfolio } = useUpdatePortfolio();
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -31,12 +40,14 @@ export default function AddPortfolio() {
     type: 'image', // 'image' or 'video'
     tags: [] as string[],
     images: [] as File[],
+    imagePreviewUrls: [] as string[], // Add preview URLs array
     videoUrl: ''
   });
 
   const [tagInput, setTagInput] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dragOver, setDragOver] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const categories = [
     'CQC Registration',
@@ -77,17 +88,57 @@ export default function AddPortfolio() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    
+    // Only allow supported image formats
+    const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    const validFiles = files.filter(file => {
+      if (!file.type.startsWith('image/')) {
+        toast.error(`${file.name} is not a valid image file`);
+        return false;
+      }
+      
+      if (!supportedTypes.includes(file.type)) {
+        toast.error(`${file.name}: ${file.type} is not supported. Please use JPEG, PNG, WebP, or GIF.`);
+        return false;
+      }
+      
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        toast.error(`${file.name} is too large. Maximum size is 10MB`);
+        return false;
+      }
+      
+      return true;
+    });
 
-    if (formData.images.length + imageFiles.length > 10) {
+    if (validFiles.length === 0) return;
+
+    if (formData.images.length + validFiles.length > 10) {
       setErrors(prev => ({ ...prev, images: 'Maximum 10 images allowed' }));
       return;
     }
 
-    setFormData(prev => ({
-      ...prev,
-      images: [...prev.images, ...imageFiles]
-    }));
+    // Create data URLs for preview
+    const newPreviewUrls: string[] = [];
+    let processedCount = 0;
+
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        newPreviewUrls.push(e.target?.result as string);
+        processedCount++;
+
+        // When all files are processed, update state
+        if (processedCount === validFiles.length) {
+          setFormData(prev => ({
+            ...prev,
+            images: [...prev.images, ...validFiles],
+            imagePreviewUrls: [...prev.imagePreviewUrls, ...newPreviewUrls]
+          }));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
     setErrors(prev => ({ ...prev, images: '' }));
   };
 
@@ -106,29 +157,68 @@ export default function AddPortfolio() {
     setDragOver(false);
 
     const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    
+    // Only allow supported image formats
+    const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    const validFiles = files.filter(file => {
+      if (!file.type.startsWith('image/')) {
+        toast.error(`${file.name} is not a valid image file`);
+        return false;
+      }
+      
+      if (!supportedTypes.includes(file.type)) {
+        toast.error(`${file.name}: ${file.type} is not supported. Please use JPEG, PNG, WebP, or GIF.`);
+        return false;
+      }
+      
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        toast.error(`${file.name} is too large. Maximum size is 10MB`);
+        return false;
+      }
+      
+      return true;
+    });
 
-    if (imageFiles.length === 0) {
-      setErrors(prev => ({ ...prev, images: 'Please upload image files only' }));
+    if (validFiles.length === 0) {
+      setErrors(prev => ({ ...prev, images: 'Please upload valid image files only' }));
       return;
     }
 
-    if (formData.images.length + imageFiles.length > 10) {
+    if (formData.images.length + validFiles.length > 10) {
       setErrors(prev => ({ ...prev, images: 'Maximum 10 images allowed' }));
       return;
     }
 
-    setFormData(prev => ({
-      ...prev,
-      images: [...prev.images, ...imageFiles]
-    }));
+    // Create data URLs for preview
+    const newPreviewUrls: string[] = [];
+    let processedCount = 0;
+
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        newPreviewUrls.push(e.target?.result as string);
+        processedCount++;
+
+        // When all files are processed, update state
+        if (processedCount === validFiles.length) {
+          setFormData(prev => ({
+            ...prev,
+            images: [...prev.images, ...validFiles],
+            imagePreviewUrls: [...prev.imagePreviewUrls, ...newPreviewUrls]
+          }));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
     setErrors(prev => ({ ...prev, images: '' }));
   };
 
   const removeImage = (index: number) => {
     setFormData(prev => ({
       ...prev,
-      images: prev.images.filter((_, i) => i !== index)
+      images: prev.images.filter((_, i) => i !== index),
+      imagePreviewUrls: prev.imagePreviewUrls.filter((_, i) => i !== index)
     }));
   };
 
@@ -151,15 +241,81 @@ export default function AddPortfolio() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (validateForm()) {
-      // TODO: Submit portfolio item to API
-      console.log('Portfolio item added:', formData);
-      // Navigate back to portfolio management
+    if (!validateForm() || !user?.id) return;
+
+    try {
+      setSubmitting(true);
+      // Create portfolio immediately with basic data
+      const portfolioData = {
+        provider_id: user.id,
+        title: formData.title,
+        description: formData.description,
+        category: formData.category,
+        images: formData.type === 'image' ? [] : undefined,
+        tags: formData.tags,
+        project_url: formData.type === 'video' ? formData.videoUrl || null : null,
+        completion_date: null,
+        client_name: null,
+        testimonial: null,
+        rating: null,
+        is_featured: false
+      };
+
+      // Submit form immediately
+      const newPortfolio = await createPortfolio(portfolioData);
+      console.log('Portfolio created successfully:', newPortfolio);
+
+      // Show success and redirect immediately
+      toast.success('Portfolio item created successfully!');
+
+      // Upload images in background if any
+      if (formData.type === 'image' && formData.images.length > 0) {
+        console.log('Starting background portfolio image upload...');
+        void (async () => {
+          try {
+            const imageUrls: string[] = [];
+            for (const image of formData.images) {
+              try {
+                const imageUrl = await uploadToCloudinary(image, {
+                  folder: 'portfolio',
+                  public_id: `portfolio_${user.id}_${Date.now()}_${image.name.split('.')[0]}`
+                });
+                imageUrls.push(imageUrl);
+              } catch (error) {
+                console.error('Background portfolio image upload error:', error);
+              }
+            }
+
+            if (imageUrls.length > 0) {
+              try {
+                await updatePortfolio(newPortfolio.id, { images: imageUrls });
+                console.log('Portfolio images uploaded and item updated successfully');
+                toast.success('Images uploaded successfully!');
+              } catch (updateError) {
+                console.error('Failed to update portfolio with images:', updateError);
+              }
+            }
+          } catch (error) {
+            console.error('Background portfolio upload failed:', error);
+          }
+        })();
+      }
+
+      // Navigate immediately
       navigate('/seller/portfolio');
+
+    } catch (error) {
+      console.error('Failed to create portfolio:', error);
+      toast.error('Failed to create portfolio. Please try again.');
+      setSubmitting(false);
+      return;
     }
+    // Ensure button resets if navigation doesn't happen for some reason
+    setSubmitting(false);
+
   };
 
   return (
@@ -354,7 +510,7 @@ export default function AddPortfolio() {
                           id="image-upload"
                           type="file"
                           multiple
-                          accept="image/*"
+                          accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                           onChange={handleFileChange}
                           className="hidden"
                         />
@@ -370,10 +526,10 @@ export default function AddPortfolio() {
                       {/* Image Preview */}
                       {formData.images.length > 0 && (
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-                          {formData.images.map((image, index) => (
+                          {formData.imagePreviewUrls.map((previewUrl, index) => (
                             <div key={index} className="relative group">
                               <img
-                                src={URL.createObjectURL(image)}
+                                src={previewUrl}
                                 alt={`Preview ${index + 1}`}
                                 className="w-full h-24 object-cover rounded-lg"
                               />
@@ -450,9 +606,23 @@ export default function AddPortfolio() {
               {/* Submit */}
               <Card>
                 <CardContent className="pt-6">
-                  <Button type="submit" className="w-full" size="lg">
-                    <Save className="mr-2 h-5 w-5" />
-                    Add to Portfolio
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    size="lg"
+                    disabled={submitting || loading}
+                  >
+                    {submitting || loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-5 w-5" />
+                        Add to Portfolio
+                      </>
+                    )}
                   </Button>
                   <p className="text-sm text-gray-500 text-center mt-2">
                     Your portfolio item will be reviewed before publishing

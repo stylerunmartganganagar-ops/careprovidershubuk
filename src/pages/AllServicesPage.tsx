@@ -24,21 +24,29 @@ import {
 import { Link } from 'react-router-dom';
 
 interface Service {
-  id: number;
+  id: string;
+  provider_id: string;
   title: string;
+  description: string;
+  category: string;
+  price: number;
+  pricing_type: 'fixed' | 'hourly' | 'starting_from';
+  delivery_time: number;
+  revisions: number;
+  features: string[];
+  images: string[];
+  status: 'active' | 'inactive' | 'draft';
   provider: {
     id: string;
     name: string;
     avatar: string;
     rating: number;
-    reviews: number;
-    level: string;
-    badge: string;
+    review_count: number;
+    company?: string;
+    job_title?: string;
+    location?: string;
+    is_verified: boolean;
   };
-  image: string;
-  price: number;
-  deliveryTime: string;
-  location: string;
 }
 
 export default function AllServicesPage() {
@@ -74,8 +82,8 @@ export default function AllServicesPage() {
     if (priceRange === '500-2000' && (service.price < 500 || service.price > 2000)) return false;
     if (priceRange === 'over-2000' && service.price <= 2000) return false;
 
-    if (ratingFilter === '4-plus' && service.provider.rating < 4) return false;
-    if (ratingFilter === '4.5-plus' && service.provider.rating < 4.5) return false;
+    if (ratingFilter === '4-plus' && (service.provider.rating || 0) < 4) return false;
+    if (ratingFilter === '4.5-plus' && (service.provider.rating || 0) < 4.5) return false;
 
     return true;
   });
@@ -88,9 +96,9 @@ export default function AllServicesPage() {
       case 'price-high':
         return b.price - a.price;
       case 'rating':
-        return b.provider.rating - a.provider.rating;
+        return (b.provider.rating || 0) - (a.provider.rating || 0);
       case 'newest':
-        return b.id - a.id;
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       default:
         return 0;
     }
@@ -201,7 +209,7 @@ export default function AllServicesPage() {
                 <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer h-full">
                   <div className="aspect-video relative">
                     <img
-                      src={service.image}
+                      src={service.images?.[0] || '/placeholder-service.jpg'}
                       alt={service.title}
                       className="w-full h-full object-cover"
                     />
@@ -224,14 +232,14 @@ export default function AllServicesPage() {
                         <div className="flex items-center space-x-2">
                           <div className="flex items-center">
                             <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                            <span className="text-xs ml-1">{service.provider.rating}</span>
+                            <span className="text-xs ml-1">{service.provider.rating?.toFixed(1) || '0.0'}</span>
                             <span className="text-xs text-gray-500 ml-1">
-                              ({service.provider.reviews})
+                              ({service.provider.review_count || 0})
                             </span>
                           </div>
-                          <Badge variant="secondary" className="text-xs">
-                            {service.provider.level}
-                          </Badge>
+                          {service.provider.is_verified && (
+                            <CheckCircle className="h-3 w-3 text-green-600" />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -241,20 +249,21 @@ export default function AllServicesPage() {
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center text-xs text-gray-500">
                         <MapPin className="h-3 w-3 mr-1" />
-                        {service.location}
+                        {service.provider.location || 'Location not specified'}
                       </div>
                       <span className="text-xs text-gray-500">
-                        {service.deliveryTime}
+                        {service.delivery_time} days
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex space-x-2">
                         <Badge variant="outline" className="text-xs">
-                          {service.provider.badge}
+                          {service.category}
                         </Badge>
                       </div>
                       <div className="text-right">
-                        <div className="font-bold">From £{service.price.toLocaleString()}</div>
+                        <div className="font-bold">£{service.price.toLocaleString()}</div>
+                        <div className="text-xs text-gray-500">/hr</div>
                       </div>
                     </div>
                   </CardContent>
@@ -270,7 +279,7 @@ export default function AllServicesPage() {
                   <div className="flex items-center space-x-4">
                     <div className="w-24 h-24 relative flex-shrink-0">
                       <img
-                        src={service.image}
+                        src={service.images?.[0] || '/placeholder-service.jpg'}
                         alt={service.title}
                         className="w-full h-full object-cover rounded-lg"
                       />
@@ -287,23 +296,23 @@ export default function AllServicesPage() {
                             <span className="text-sm font-medium">{service.provider.name}</span>
                             <div className="flex items-center">
                               <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                              <span className="text-xs ml-1">{service.provider.rating}</span>
+                              <span className="text-xs ml-1">{service.provider.rating?.toFixed(1) || '0.0'}</span>
                               <span className="text-xs text-gray-500 ml-1">
-                                ({service.provider.reviews} reviews)
+                                ({service.provider.review_count || 0} reviews)
                               </span>
                             </div>
-                            <Badge variant="secondary" className="text-xs">
-                              {service.provider.level}
-                            </Badge>
+                            {service.provider.is_verified && (
+                              <CheckCircle className="h-3 w-3 text-green-600" />
+                            )}
                           </div>
                           <div className="flex items-center space-x-4 text-sm text-gray-600">
                             <div className="flex items-center">
                               <MapPin className="h-4 w-4 mr-1" />
-                              {service.location}
+                              {service.provider.location || 'Location not specified'}
                             </div>
                             <div className="flex items-center">
                               <Clock className="h-4 w-4 mr-1" />
-                              {service.deliveryTime}
+                              {service.delivery_time} days
                             </div>
                           </div>
                         </div>
@@ -312,8 +321,9 @@ export default function AllServicesPage() {
                           <div className="text-2xl font-bold text-primary mb-2">
                             £{service.price.toLocaleString()}
                           </div>
+                          <div className="text-sm text-gray-500 mb-2">/{service.pricing_type}</div>
                           <Badge variant="outline" className="mb-2">
-                            {service.provider.badge}
+                            {service.category}
                           </Badge>
                           <div className="flex space-x-2">
                             <Button size="sm" variant="outline">

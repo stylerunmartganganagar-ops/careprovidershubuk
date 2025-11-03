@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { useAuth } from '../lib/auth.tsx';
+import { useSellerPortfolio, useUpdatePortfolio, useDeletePortfolio } from '../hooks/useProjects';
+import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { SellerDashboardHeader } from '../components/SellerDashboardHeader';
 import { Footer } from '../components/Footer';
@@ -28,71 +31,10 @@ import {
 
 export default function ManagePortfolio() {
   const navigate = useNavigate();
-
-  // Mock portfolio data
-  const [portfolioItems, setPortfolioItems] = useState([
-    {
-      id: 1,
-      title: 'Complete CQC Registration Package',
-      description: 'Successfully helped a 50-bed care home achieve full CQC registration within 8 weeks. Included comprehensive documentation, staff training, and inspection preparation.',
-      category: 'CQC Registration',
-      type: 'image',
-      images: [
-        'https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=400&h=300&fit=crop',
-        'https://images.unsplash.com/photo-1559757175-0eb30cd8c063?w=400&h=300&fit=crop'
-      ],
-      tags: ['CQC Registration', 'Care Home', 'Compliance'],
-      status: 'published',
-      views: 245,
-      createdAt: '2024-01-15',
-      featured: true
-    },
-    {
-      id: 2,
-      title: 'Healthcare Compliance Audit',
-      description: 'Conducted comprehensive compliance audit for a nursing home chain. Identified 15 improvement areas and developed action plan that resulted in 95% compliance score.',
-      category: 'Healthcare Compliance Audit',
-      type: 'image',
-      images: [
-        'https://images.unsplash.com/photo-1582750433449-648ed127bb54?w=400&h=300&fit=crop'
-      ],
-      tags: ['Audit', 'Compliance', 'Quality Assurance'],
-      status: 'published',
-      views: 189,
-      createdAt: '2024-01-10',
-      featured: false
-    },
-    {
-      id: 3,
-      title: 'Regulatory Documentation Service',
-      description: 'Created comprehensive regulatory documentation package for new healthcare startup. Included policies, procedures, and compliance frameworks.',
-      category: 'Regulatory Documentation',
-      type: 'video',
-      videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-      tags: ['Documentation', 'Regulatory', 'Startup'],
-      status: 'published',
-      views: 156,
-      createdAt: '2024-01-05',
-      featured: false
-    },
-    {
-      id: 4,
-      title: 'Care Home Licensing Project',
-      description: 'Guided care home through complete licensing process. Achieved license approval in record time with zero deficiencies noted.',
-      category: 'Care Home Licensing',
-      type: 'image',
-      images: [
-        'https://images.unsplash.com/photo-1582213782179-e0d53f98f2ca?w=400&h=300&fit=crop',
-        'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=400&h=300&fit=crop',
-        'https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=400&h=300&fit=crop'
-      ],
-      tags: ['Licensing', 'Care Home', 'Regulatory'],
-      status: 'draft',
-      views: 0,
-      createdAt: '2024-01-20',
-      featured: false
-    }
-  ]);
+  const { user } = useAuth();
+  const { portfolioItems, loading, error, refetch } = useSellerPortfolio(user?.id);
+  const { updatePortfolio } = useUpdatePortfolio();
+  const { deletePortfolio } = useDeletePortfolio();
 
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editForm, setEditForm] = useState({
@@ -122,34 +64,40 @@ export default function ManagePortfolio() {
       title: item.title,
       description: item.description,
       category: item.category,
-      tags: [...item.tags],
+      tags: [...(item.tags || [])],
       featured: item.featured
     });
   };
 
-  const handleSaveEdit = () => {
-    setPortfolioItems(prev =>
-      prev.map(item =>
-        item.id === editingItem.id
-          ? { ...item, ...editForm }
-          : item
-      )
-    );
-    setEditingItem(null);
+  const handleSaveEdit = async () => {
+    if (!editingItem) return;
+
+    try {
+      await updatePortfolio(editingItem.id, {
+        title: editForm.title,
+        description: editForm.description,
+        category: editForm.category,
+        tags: editForm.tags,
+        featured: editForm.featured
+      });
+      setEditingItem(null);
+      refetch();
+      toast.success('Portfolio item updated successfully!');
+    } catch (error) {
+      console.error('Failed to update portfolio:', error);
+      toast.error('Failed to update portfolio item');
+    }
   };
 
-  const handleDelete = (id: number) => {
-    setPortfolioItems(prev => prev.filter(item => item.id !== id));
-  };
-
-  const toggleFeatured = (id: number) => {
-    setPortfolioItems(prev =>
-      prev.map(item =>
-        item.id === id
-          ? { ...item, featured: !item.featured }
-          : item
-      )
-    );
+  const handleDelete = async (id: string) => {
+    try {
+      await deletePortfolio(id);
+      refetch();
+      toast.success('Portfolio item deleted successfully!');
+    } catch (error) {
+      console.error('Failed to delete portfolio:', error);
+      toast.error('Failed to delete portfolio item');
+    }
   };
 
   const addTag = (tag: string) => {
@@ -363,14 +311,6 @@ export default function ManagePortfolio() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => toggleFeatured(item.id)}
-                          >
-                            <Tag className={`h-4 w-4 ${item.featured ? 'text-yellow-500' : 'text-gray-400'}`} />
-                          </Button>
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
                             onClick={() => handleDelete(item.id)}
                             className="text-red-500 hover:text-red-700"
                           >
@@ -387,7 +327,7 @@ export default function ManagePortfolio() {
                       </div>
 
                       <div className="flex flex-wrap gap-1 mb-3">
-                        {item.tags.slice(0, 3).map((tag) => (
+                        {item.tags && item.tags.slice(0, 3).map((tag) => (
                           <Badge key={tag} variant="outline" className="text-xs">
                             {tag}
                           </Badge>
@@ -396,7 +336,7 @@ export default function ManagePortfolio() {
 
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">
-                          {new Date(item.createdAt).toLocaleDateString()}
+                          {new Date(item.created_at).toLocaleDateString()}
                         </span>
                         <Button variant="outline" size="sm">
                           <ExternalLink className="h-3 w-3 mr-1" />
