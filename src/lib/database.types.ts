@@ -29,6 +29,7 @@ export interface Database {
           review_count: number
           created_at: string
           updated_at: string
+          bid_tokens: number
         }
         Insert: {
           id: string
@@ -49,6 +50,7 @@ export interface Database {
           review_count?: number
           created_at?: string
           updated_at?: string
+          bid_tokens?: number
         }
         Update: {
           id?: string
@@ -69,6 +71,7 @@ export interface Database {
           review_count?: number
           created_at?: string
           updated_at?: string
+          bid_tokens?: number
         }
       }
       services: {
@@ -369,12 +372,100 @@ export interface Database {
           updated_at?: string
         }
       }
+      token_plans: {
+        Row: {
+          id: string
+          slug: string
+          name: string
+          description: string | null
+          tokens: number
+          price: number
+          currency: string
+          is_popular: boolean
+          is_active: boolean
+          active_purchases: number
+          total_revenue: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          slug: string
+          name: string
+          description?: string | null
+          tokens: number
+          price: number
+          currency?: string
+          is_popular?: boolean
+          is_active?: boolean
+          active_purchases?: number
+          total_revenue?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          slug?: string
+          name?: string
+          description?: string | null
+          tokens?: number
+          price?: number
+          currency?: string
+          is_popular?: boolean
+          is_active?: boolean
+          active_purchases?: number
+          total_revenue?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      token_purchases: {
+        Row: {
+          id: string
+          seller_id: string
+          plan_id: string
+          tokens: number
+          amount: number
+          currency: string
+          status: string
+          metadata: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          seller_id: string
+          plan_id: string
+          tokens: number
+          amount: number
+          currency?: string
+          status?: string
+          metadata?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          seller_id?: string
+          plan_id?: string
+          tokens?: number
+          amount?: number
+          currency?: string
+          status?: string
+          metadata?: Json | null
+          created_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      record_token_purchase: {
+        Args: {
+          p_seller_id: string
+          p_plan_slug: string
+        }
+        Returns: Database['public']['Tables']['token_purchases']['Row']
+      }
     }
     Enums: {
       [_ in never]: never

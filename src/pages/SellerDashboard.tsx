@@ -562,7 +562,6 @@ export default function SellerDashboard() {
                   variant="outline"
                   size="sm"
                   disabled
-                  className="self-start sm:self-auto"
                 >
                   View All
                 </Button>
