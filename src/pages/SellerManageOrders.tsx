@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SellerDashboardHeader } from '../components/SellerDashboardHeader';
 import { Footer } from '../components/Footer';
@@ -25,124 +25,101 @@ import {
   User,
   MapPin
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth.tsx';
 
 export default function SellerManageOrders() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [filterStatus, setFilterStatus] = useState('all');
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deliveringId, setDeliveringId] = useState<string | null>(null);
 
-  // Mock orders data for seller
-  const activeOrders = [
-    {
-      id: 'ORD-001',
-      title: 'CQC Registration Package',
-      client: {
-        name: 'Sarah Mitchell',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah',
-        location: 'London, UK',
-        rating: 4.8,
-        reviews: 23
-      },
-      status: 'In Progress',
-      progress: 75,
-      amount: 1250,
-      deadline: '2024-02-15',
-      startDate: '2024-01-10',
-      lastActivity: '2 hours ago',
-      type: 'Premium Package',
-      description: 'Complete CQC registration assistance for new care home facility',
-      requirements: ['CQC application forms', 'Site inspection preparation', 'Documentation review']
-    },
-    {
-      id: 'ORD-002',
-      title: 'Healthcare Compliance Audit',
-      client: {
-        name: 'David Thompson',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=David',
-        location: 'Manchester, UK',
-        rating: 4.6,
-        reviews: 18
-      },
-      status: 'Revision',
-      progress: 60,
-      amount: 850,
-      deadline: '2024-02-10',
-      startDate: '2024-01-08',
-      lastActivity: '1 day ago',
-      type: 'Standard Package',
-      description: 'Comprehensive compliance audit for existing healthcare facility',
-      requirements: ['On-site audit', 'Compliance report', 'Improvement recommendations']
-    },
-    {
-      id: 'ORD-003',
-      title: 'Care Home Licensing Support',
-      client: {
-        name: 'Emma Wilson',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emma',
-        location: 'Birmingham, UK',
-        rating: 4.9,
-        reviews: 31
-      },
-      status: 'Delivered',
-      progress: 100,
-      amount: 2200,
-      deadline: '2024-01-20',
-      startDate: '2024-01-01',
-      lastActivity: '3 days ago',
-      type: 'Pro Package',
-      description: 'Complete licensing application and regulatory compliance support',
-      requirements: ['Licensing application', 'Regulatory documentation', 'Compliance training']
-    }
-  ];
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      if (!user?.id) return;
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, completed_at, delivered_at, buyer_accepted')
+        .eq('provider_id', user.id)
+        .order('created_at', { ascending: false });
+      if (!error && mounted) setOrders(data || []);
+      setLoading(false);
+    };
+    load();
+    const ch = supabase
+      .channel('seller_manage_orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `provider_id=eq.${user?.id}` }, load)
+      .subscribe();
+    return () => { mounted = false; supabase.removeChannel(ch); };
+  }, [user?.id]);
 
-  const newInquiries = [
-    {
-      id: 'INQ-001',
-      title: 'Nursing Home Setup Consultation',
-      client: {
-        name: 'James Parker',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=James',
-        location: 'Leeds, UK',
-        rating: 4.7,
-        reviews: 15
-      },
-      amount: 1800,
-      inquiryDate: '2024-01-16',
-      type: 'Consultation',
-      message: 'Hi, I need help setting up a new nursing home facility. Looking for comprehensive regulatory guidance and compliance support.',
-      skills: ['Nursing Home Setup', 'Regulatory Compliance', 'Facility Planning']
-    },
-    {
-      id: 'INQ-002',
-      title: 'CQC Inspection Preparation',
-      client: {
-        name: 'Lisa Johnson',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa',
-        location: 'Sheffield, UK',
-        rating: 4.5,
-        reviews: 12
-      },
-      amount: 950,
-      inquiryDate: '2024-01-15',
-      type: 'Service',
-      message: 'Need urgent help preparing for upcoming CQC inspection. Have 2 weeks to get everything ready.',
-      skills: ['CQC Inspection Preparation', 'Quality Assurance', 'Compliance Training']
-    }
-  ];
+  const newInquiries = useMemo(() => {
+    // Treat pending orders for this seller as inquiries
+    return orders
+      .filter(o => o.status === 'pending')
+      .map(o => ({
+        id: o.id,
+        title: o.title || 'Untitled Inquiry',
+        client: {
+          name: o.buyer_id,
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${o.buyer_id}`,
+          location: '—',
+          rating: 0,
+          reviews: 0,
+        },
+        amount: o.price || 0,
+        inquiryDate: o.created_at,
+        type: 'Project',
+        message: '',
+        skills: [] as string[],
+      }));
+  }, [orders]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'In Progress': return 'bg-blue-100 text-blue-800';
-      case 'Revision': return 'bg-yellow-100 text-yellow-800';
-      case 'Delivered': return 'bg-green-100 text-green-800';
-      case 'Completed': return 'bg-green-100 text-green-800';
+      case 'in_progress': return 'bg-blue-100 text-blue-800';
+      case 'revision': return 'bg-yellow-100 text-yellow-800';
+      case 'completed': return 'bg-green-100 text-green-800';
+      case 'pending': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const filteredOrders = activeOrders.filter(order => {
+  const displayOrders = useMemo(() => orders.map(o => ({
+    id: o.id,
+    title: o.title,
+    amount: o.price || 0,
+    status: o.status as string,
+    progress: o.status === 'completed' ? 100 : o.status === 'revision' ? 60 : 75,
+    startDate: o.created_at,
+    deadline: o.delivery_date || o.created_at,
+    lastActivity: new Date(o.created_at).toLocaleDateString(),
+    type: 'Custom',
+    client: { name: o.buyer_id, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${o.buyer_id}`, location: '—', rating: 0, reviews: 0 },
+    description: '',
+    delivered_at: o.delivered_at,
+    buyer_accepted: o.buyer_accepted,
+  })), [orders]);
+
+  const filteredOrders = useMemo(() => displayOrders.filter(order => {
     if (filterStatus === 'all') return true;
     return order.status === filterStatus;
-  });
+  }), [displayOrders, filterStatus]);
+
+  const markDelivered = async (id: string) => {
+    try {
+      setDeliveringId(id);
+      await (supabase.from('orders') as any)
+        .update({ delivered_at: new Date().toISOString() })
+        .eq('id', id);
+    } finally {
+      setDeliveringId(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -178,10 +155,10 @@ export default function SellerManageOrders() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Orders</SelectItem>
-                  <SelectItem value="In Progress">In Progress</SelectItem>
-                  <SelectItem value="Revision">Revision</SelectItem>
-                  <SelectItem value="Delivered">Delivered</SelectItem>
-                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="revision">Incomplete</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -195,7 +172,7 @@ export default function SellerManageOrders() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Active Orders</p>
-                  <p className="text-2xl font-bold">{activeOrders.filter(o => o.status === 'In Progress').length}</p>
+                  <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'in_progress').length}</p>
                 </div>
                 <Package className="h-8 w-8 text-blue-600" />
               </div>
@@ -206,8 +183,8 @@ export default function SellerManageOrders() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Pending Revision</p>
-                  <p className="text-2xl font-bold">{activeOrders.filter(o => o.status === 'Revision').length}</p>
+                  <p className="text-sm font-medium text-gray-600">Incomplete</p>
+                  <p className="text-2xl font-bold">{displayOrders.filter(o => o.status === 'revision').length}</p>
                 </div>
                 <AlertCircle className="h-8 w-8 text-yellow-600" />
               </div>
@@ -231,7 +208,7 @@ export default function SellerManageOrders() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">This Month's Revenue</p>
-                  <p className="text-2xl font-bold">£{activeOrders.reduce((sum, order) => sum + order.amount, 0).toLocaleString()}</p>
+                  <p className="text-2xl font-bold">£{displayOrders.reduce((sum, order) => sum + (order.amount || 0), 0).toLocaleString()}</p>
                 </div>
                 <DollarSign className="h-8 w-8 text-green-600" />
               </div>
@@ -322,10 +299,21 @@ export default function SellerManageOrders() {
                           <FileText className="h-4 w-4 mr-1" />
                           Update Progress
                         </Button>
-                        <Button size="sm">
+                        <Button size="sm" onClick={() => navigate(`/order/${order.id}/delivery`)}>
                           <Eye className="h-4 w-4 mr-1" />
                           View Details
                         </Button>
+                        {order.status !== 'completed' && !order.delivered_at && (
+                          <Button size="sm" className="bg-green-600 hover:bg-green-700 disabled:opacity-60" disabled={deliveringId === order.id} onClick={() => markDelivered(order.id)}>
+                            {deliveringId === order.id ? 'Delivering...' : 'Mark as Delivered'}
+                          </Button>
+                        )}
+                        {order.delivered_at && !order.buyer_accepted && (
+                          <Badge className="bg-yellow-100 text-yellow-800">Waiting buyer acceptance</Badge>
+                        )}
+                        {order.delivered_at && order.buyer_accepted && (
+                          <Badge className="bg-green-100 text-green-800">Completed</Badge>
+                        )}
                       </div>
                     </div>
                   </CardContent>

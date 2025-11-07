@@ -46,8 +46,8 @@ export default function ServiceDetail() {
   const { user } = useAuth();
 
   const handleContact = async (sellerId: string) => {
-    // Navigate to messages with the seller ID to start chat
-    navigate(`/messages?with=${sellerId}`);
+    // Navigate to the seller's profile page
+    navigate(`/seller/${sellerId}`);
   };
 
   if (loading) {
@@ -194,6 +194,10 @@ export default function ServiceDetail() {
                 <div>
                   <div className="font-medium">{service.provider?.name}</div>
                   <div className="text-sm text-gray-600">@{service.provider?.username}</div>
+                  <div className="flex items-center text-xs text-gray-600 mt-1">
+                    <Star className="h-3 w-3 mr-1 fill-yellow-400 text-yellow-400" />
+                    <span>{(service.provider?.rating || 0).toFixed(1)} ({service.provider?.review_count || 0} reviews)</span>
+                  </div>
                 </div>
               </div>
               <Button className="w-full" onClick={() => handleContact(service.provider_id)}>

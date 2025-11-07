@@ -50,6 +50,10 @@ import VerificationSuccess from "./pages/VerificationSuccess";
 import AdminSignup from "./pages/AdminSignup";
 import ServiceDetail from "./pages/ServiceDetail";
 import Home from "./pages/Home";
+import TokenPurchasePage from "./pages/TokenPurchasePage";
+import OrderDeliveryPage from "./pages/OrderDeliveryPage";
+import BidDetailPage from "./pages/BidDetailPage";
+import { supabase } from './lib/supabase';
 
 const queryClient = new QueryClient();
 
@@ -57,6 +61,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
+        <AnalyticsInjector />
         <Toaster />
         <Sonner />
         <ScrollToTopButton />
@@ -96,6 +101,14 @@ const App = () => (
                 <Route path="/favorites" element={<Favorites />} />
                 <Route path="/seller/earnings" element={<SellerEarnings />} />
                 <Route path="/seller/manage-orders" element={<SellerManageOrders />} />
+                <Route 
+                  path="/seller/tokens" 
+                  element={
+                    <ProtectedRoute>
+                      <TokenPurchasePage />
+                    </ProtectedRoute>
+                  } 
+                />
                 <Route path="/seller/update-profile" element={<SellerUpdateProfile />} />
                 <Route path="/seller/services" element={<SellerServices />} />
                 <Route path="/seller/add-portfolio" element={<AddPortfolio />} />
@@ -120,6 +133,14 @@ const App = () => (
                 <Route path="/seller/:id" element={<SellerProfile />} />
                 <Route path="/service/:id" element={<ServiceDetail />} />
                 <Route
+                  path="/order/:id/delivery"
+                  element={
+                    <ProtectedRoute>
+                      <OrderDeliveryPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/project/:id"
                   element={
                     <ProtectedRoute>
@@ -132,6 +153,14 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <BidProject />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/project/:projectId/bid/:bidId"
+                  element={
+                    <ProtectedRoute>
+                      <BidDetailPage />
                     </ProtectedRoute>
                   }
                 />
@@ -157,3 +186,50 @@ const App = () => (
 );
 
 export default App;
+
+// Inject analytics tags once on initial load
+const AnalyticsInjector = () => {
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('platform_settings').select('*').order('updated_at', { ascending: false }).limit(1);
+        const row: any = data && data[0];
+        if (!row) return;
+
+        // Facebook Pixel
+        if (row.fb_pixel_id && !document.getElementById('fb-pixel')) {
+          (function (f: any, b: any, e: any, v: any, n?: any, t?: any, s?: any) {
+            if (f.fbq) return; n = f.fbq = function () { (n as any).callMethod ? (n as any).callMethod.apply(n, arguments) : (n as any).queue.push(arguments); };
+            if (!(f as any)._fbq) (f as any)._fbq = n; (n as any).push = (n as any); (n as any).loaded = !0; (n as any).version = '2.0'; (n as any).queue = [];
+            t = b.createElement(e); t.async = !0; t.src = 'https://connect.facebook.net/en_US/fbevents.js'; t.id = 'fb-pixel';
+            s = b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t, s);
+          })(window, document, 'script', 0);
+          (window as any).fbq('init', row.fb_pixel_id);
+          (window as any).fbq('track', 'PageView');
+        }
+
+        // Google Tag Manager
+        if (row.gtm_id && !document.getElementById('gtm-script')) {
+          const s = document.createElement('script'); s.id = 'gtm-script'; s.innerHTML = ` (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+            new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+            j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+            'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+            })(window,document,'script','dataLayer','${row.gtm_id}');`;
+          document.head.appendChild(s);
+          const nos = document.createElement('noscript'); nos.id = 'gtm-noscript'; nos.innerHTML = `<iframe src="https://www.googletagmanager.com/ns.html?id=${row.gtm_id}" height="0" width="0" style="display:none;visibility:hidden"></iframe>`;
+          document.body.appendChild(nos);
+        }
+
+        // Google Analytics (GA4)
+        if (row.ga_measurement_id && !document.getElementById('ga4-script')) {
+          const s1 = document.createElement('script'); s1.async = true; s1.src = `https://www.googletagmanager.com/gtag/js?id=${row.ga_measurement_id}`; s1.id = 'ga4-script';
+          const s2 = document.createElement('script'); s2.innerHTML = `window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', '${row.ga_measurement_id}');`;
+          document.head.appendChild(s1); document.head.appendChild(s2);
+        }
+      } catch {}
+    })();
+  }, []);
+  return null;
+};
+
+// end analytics injector

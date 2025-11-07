@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -55,221 +55,349 @@ import {
   RefreshCw,
   Plus
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { Database } from '../lib/database.types';
 
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Mock data for admin panel
-  const stats = {
-    totalUsers: 15420,
-    activeSellers: 2340,
-    totalOrders: 8920,
-    pendingApprovals: 45,
-    reportedMessages: 23,
-    revenue: 245680,
-    pendingPayments: 45670
-  };
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    activeSellers: 0,
+    totalOrders: 0,
+    pendingApprovals: 0,
+    reportedMessages: 0,
+    revenue: 0,
+    pendingPayments: 0
+  });
 
   // Messages for moderation
-  const messages = [
-    {
-      id: 1,
-      sender: 'john.doe@example.com',
-      recipient: 'sarah.mitchell@healthcare.com',
-      content: 'Hello Sarah, I need urgent help with CQC registration. My deadline is approaching.',
-      timestamp: '2024-01-15 10:30:00',
-      flagged: true,
-      flagReason: 'Urgent language',
-      status: 'pending'
-    },
-    {
-      id: 2,
-      sender: 'emma.wilson@clinic.com',
-      recipient: 'david.thompson@consultant.com',
-      content: 'Thank you for the excellent service! The documentation was perfect.',
-      timestamp: '2024-01-15 09:15:00',
-      flagged: false,
-      status: 'approved'
-    },
-    {
-      id: 3,
-      sender: 'spam.sender@fake.com',
-      recipient: 'multiple',
-      content: 'Get rich quick scheme! Invest in healthcare stocks now!!!',
-      timestamp: '2024-01-15 08:45:00',
-      flagged: true,
-      flagReason: 'Spam content',
-      status: 'pending'
-    }
-  ];
+  const [messages, setMessages] = useState<Array<{
+    id: string;
+    sender: string;
+    recipient: string;
+    content: string;
+    timestamp: string;
+    flagged?: boolean;
+    flagReason?: string;
+    status?: 'pending' | 'approved' | 'rejected';
+  }>>([]);
+
+  // Orders (Created/Pending and Accepted/In Progress)
+  const [createdOrders, setCreatedOrders] = useState<Array<{
+    id: string;
+    title: string;
+    buyer_id: string;
+    provider_id: string;
+    price: number;
+    status: string;
+    created_at: string;
+  }>>([]);
+  const [acceptedOrders, setAcceptedOrders] = useState<Array<{
+    id: string;
+    title: string;
+    buyer_id: string;
+    provider_id: string;
+    price: number;
+    status: string;
+    created_at: string;
+  }>>([]);
 
   // Pending approvals
-  const pendingApprovals = [
-    {
-      id: 1,
-      type: 'seller_profile',
-      user: {
-        name: 'Michael Chen',
-        email: 'michael.chen@newclinic.com',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Michael'
-      },
-      submittedDate: '2024-01-14',
-      status: 'pending',
-      content: 'New healthcare consultant profile submission'
-    },
-    {
-      id: 2,
-      type: 'service_posting',
-      user: {
-        name: 'Lisa Park',
-        email: 'lisa.park@consulting.com',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa'
-      },
-      submittedDate: '2024-01-13',
-      status: 'pending',
-      content: 'CQC compliance service package'
-    },
-    {
-      id: 3,
-      type: 'review',
-      user: {
-        name: 'Robert Johnson',
-        email: 'robert.j@hospital.com',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Robert'
-      },
-      submittedDate: '2024-01-12',
-      status: 'pending',
-      content: 'Review for Sarah Mitchell\'s services'
-    }
-  ];
+  const [pendingApprovals, setPendingApprovals] = useState<Array<{
+    id: string;
+    type: 'seller_profile' | 'service_posting';
+    user: { name: string; email: string; avatar: string };
+    submittedDate: string;
+    status: 'pending' | 'approved' | 'rejected';
+    content: string;
+  }>>([]);
 
   // Sellers management
-  const sellers = [
-    {
-      id: 1,
-      name: 'Sarah Mitchell',
-      email: 'sarah.mitchell@consultant.com',
-      status: 'active',
-      level: 'Level 2',
-      rating: 4.9,
-      ordersCompleted: 127,
-      earnings: 45250,
-      joinDate: '2023-06-15',
-      lastActive: '2 hours ago',
-      warnings: 0,
-      banned: false
-    },
-    {
-      id: 2,
-      name: 'David Thompson',
-      email: 'david.thompson@audit.com',
-      status: 'active',
-      level: 'Level 1',
-      rating: 4.7,
-      ordersCompleted: 89,
-      earnings: 32100,
-      joinDate: '2023-09-20',
-      lastActive: '1 day ago',
-      warnings: 1,
-      banned: false
-    },
-    {
-      id: 3,
-      name: 'Emma Wilson',
-      email: 'emma.wilson@compliance.com',
-      status: 'suspended',
-      level: 'Level 2',
-      rating: 4.8,
-      ordersCompleted: 156,
-      earnings: 56800,
-      joinDate: '2023-03-10',
-      lastActive: '1 week ago',
-      warnings: 3,
-      banned: false
-    }
-  ];
+  const [sellers, setSellers] = useState<Array<{
+    id: string | number;
+    name: string;
+    email: string;
+    status: 'active' | 'suspended' | 'pending';
+    level: string;
+    rating: number;
+    ordersCompleted: number;
+    earnings: number;
+    joinDate: string;
+    lastActive: string;
+    warnings: number;
+    banned: boolean;
+  }>>([]);
 
   // Payment management
-  const payments = [
-    {
-      id: 1,
-      orderId: 'ORD-2024-001',
-      seller: 'Sarah Mitchell',
-      buyer: 'John Doe Clinic',
-      amount: 1250,
-      fee: 125,
-      netAmount: 1125,
-      status: 'pending',
-      date: '2024-01-15',
-      dueDate: '2024-01-20'
-    },
-    {
-      id: 2,
-      orderId: 'ORD-2024-002',
-      seller: 'David Thompson',
-      buyer: 'City Hospital',
-      amount: 2200,
-      fee: 220,
-      netAmount: 1980,
-      status: 'processing',
-      date: '2024-01-14',
-      dueDate: '2024-01-19'
-    },
-    {
-      id: 3,
-      orderId: 'ORD-2024-003',
-      seller: 'Emma Wilson',
-      buyer: 'Private Practice Ltd',
-      amount: 850,
-      fee: 85,
-      netAmount: 765,
-      status: 'completed',
-      date: '2024-01-13',
-      dueDate: '2024-01-18'
-    }
-  ];
+  const [payments, setPayments] = useState<Array<{
+    id: string | number;
+    orderId: string;
+    seller: string;
+    buyer: string;
+    amount: number;
+    fee: number;
+    netAmount: number;
+    status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
+    date: string;
+    dueDate: string;
+  }>>([]);
 
   // Seller plans (Token packages)
-  const sellerPlans = [
-    {
-      id: 1,
-      name: 'Starter Pack',
-      tokens: 10,
-      price: 9.99,
-      description: 'Perfect for trying out the platform',
-      activePurchases: 450,
-      revenue: 4495.50
-    },
-    {
-      id: 2,
-      name: 'Professional Pack',
-      tokens: 50,
-      price: 39.99,
-      description: 'Most popular choice for active sellers',
-      activePurchases: 890,
-      revenue: 35591.10,
-      popular: true
-    },
-    {
-      id: 3,
-      name: 'Enterprise Pack',
-      tokens: 200,
-      price: 149.99,
-      description: 'Best value for high-volume sellers',
-      activePurchases: 120,
-      revenue: 17998.80
-    },
-    {
-      id: 4,
-      name: 'Unlimited Monthly',
-      tokens: -1, // unlimited
-      price: 299.99,
-      description: 'Unlimited applications for power users',
-      activePurchases: 45,
-      revenue: 13499.55
-    }
-  ];
+  const [sellerPlans, setSellerPlans] = useState<Array<{
+    id: string | number;
+    name: string;
+    tokens: number;
+    price: number;
+    description: string | null;
+    activePurchases: number;
+    revenue: number;
+    popular?: boolean;
+  }>>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadOverview = async () => {
+      try {
+        const [{ count: usersCount }, { count: providersCount }, { count: ordersCount }] = await Promise.all([
+          supabase.from('users').select('*', { count: 'exact', head: true }),
+          supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'provider'),
+          supabase.from('orders').select('*', { count: 'exact', head: true }),
+        ]);
+
+        const { data: paymentsDataPending } = await supabase
+          .from('payments')
+          .select('amount, status');
+
+        const revenue = (paymentsDataPending || [])
+          .filter(p => p.status === 'completed')
+          .reduce((sum, p: any) => sum + (p.amount || 0), 0);
+
+        const pendingPayments = (paymentsDataPending || [])
+          .filter(p => p.status === 'pending')
+          .reduce((sum, p: any) => sum + (p.amount || 0), 0);
+
+        // Use unread messages as a proxy for reported count (no flagged field present)
+        const { data: unreadMsgs } = await supabase
+          .from('messages')
+          .select('is_read');
+
+        if (mounted) {
+          setStats(prev => ({
+            ...prev,
+            totalUsers: usersCount || 0,
+            activeSellers: providersCount || 0,
+            totalOrders: ordersCount || 0,
+            revenue,
+            pendingPayments,
+            reportedMessages: (unreadMsgs || []).filter(m => m.is_read === false).length,
+          }));
+        }
+      } catch (e) {
+        console.error('Error loading overview stats', e);
+      }
+    };
+
+    const loadCreatedOrders = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, proposal_message_id')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        setCreatedOrders(data || []);
+      } catch (e) {
+        console.error('Error loading created orders', e);
+      }
+    };
+
+    const loadAcceptedOrders = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date')
+          .neq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        setAcceptedOrders(data || []);
+      } catch (e) {
+        console.error('Error loading accepted orders', e);
+      }
+    };
+
+    const loadMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select(`id, content, created_at, sender:users!messages_sender_id_fkey(id,email), receiver:users!messages_receiver_id_fkey(id,email)`)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        const rows = (data || []).map((m: any) => ({
+          id: m.id,
+          sender: m.sender?.email || m.sender?.id || 'Unknown',
+          recipient: m.receiver?.email || m.receiver?.id || 'Unknown',
+          content: m.content,
+          timestamp: m.created_at,
+          status: 'pending' as const
+        }));
+        if (mounted) setMessages(rows);
+      } catch (e) {
+        console.error('Error loading messages', e);
+      }
+    };
+
+    const loadApprovals = async () => {
+      try {
+        const [{ data: unverified }, { data: inactiveServices }] = await Promise.all([
+          supabase.from('users').select('id, name, email, avatar, is_verified, created_at, role').eq('is_verified', false),
+          supabase.from('services').select('id, title, provider_id, is_active, created_at'),
+        ]);
+
+        const unverifiedItems = (unverified || []).map(u => ({
+          id: u.id,
+          type: 'seller_profile' as const,
+          user: { name: (u as any).name, email: (u as any).email, avatar: (u as any).avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default' },
+          submittedDate: (u as any).created_at,
+          status: 'pending' as const,
+          content: 'Profile verification pending'
+        }));
+
+        const serviceItems = (inactiveServices || [])
+          .filter((s: any) => s.is_active === false)
+          .map((s: any) => ({
+            id: s.id,
+            type: 'service_posting' as const,
+            user: { name: 'Service Provider', email: s.provider_id, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=service' },
+            submittedDate: s.created_at,
+            status: 'pending' as const,
+            content: s.title
+          }));
+
+        const combined = [...unverifiedItems, ...serviceItems].slice(0, 10);
+        if (mounted) {
+          setPendingApprovals(combined);
+          setStats(prev => ({ ...prev, pendingApprovals: combined.length }));
+        }
+      } catch (e) {
+        console.error('Error loading approvals', e);
+      }
+    };
+
+    const loadSellers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, name, email, role, rating, review_count, created_at, is_verified')
+          .eq('role', 'provider')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        const rows = (data || []).map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          status: u.is_verified ? 'active' : 'pending',
+          level: 'Level 1',
+          rating: u.rating || 0,
+          ordersCompleted: u.review_count || 0,
+          earnings: 0,
+          joinDate: u.created_at,
+          lastActive: '—',
+          warnings: 0,
+          banned: false,
+        }));
+        if (mounted) setSellers(rows);
+      } catch (e) {
+        console.error('Error loading sellers', e);
+      }
+    };
+
+    const loadPayments = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('payments')
+          .select('id, order_id, amount, currency, status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        const rows = (data || []).map((p: any) => ({
+          id: p.id,
+          orderId: p.order_id,
+          seller: '-',
+          buyer: '-',
+          amount: p.amount,
+          fee: Math.round(p.amount * 0.1),
+          netAmount: Math.round(p.amount * 0.9),
+          status: (p.status || 'pending') as any,
+          date: p.created_at,
+          dueDate: p.created_at,
+        }));
+        if (mounted) setPayments(rows);
+      } catch (e) {
+        console.error('Error loading payments', e);
+      }
+    };
+
+    const loadPlans = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('token_plans')
+          .select('*')
+          .order('tokens', { ascending: true });
+        if (error) throw error;
+        const rows = (data || []).map((pl: any) => ({
+          id: pl.id,
+          name: pl.name,
+          tokens: pl.tokens,
+          price: pl.price,
+          description: pl.description,
+          activePurchases: pl.active_purchases || 0,
+          revenue: pl.total_revenue || 0,
+          popular: pl.is_popular || false,
+        }));
+        if (mounted) setSellerPlans(rows);
+      } catch (e) {
+        console.error('Error loading plans', e);
+      }
+    };
+
+    const loadAll = async () => {
+      await Promise.all([
+        loadOverview(),
+        loadMessages(),
+        loadApprovals(),
+        loadSellers(),
+        loadPayments(),
+        loadPlans(),
+        loadCreatedOrders(),
+        loadAcceptedOrders(),
+      ]);
+    };
+
+    loadAll();
+
+    // Basic realtime to refresh lists on changes
+    const channel = supabase
+      .channel('admin_panel_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => { loadOverview(); loadSellers(); loadApprovals(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => { loadMessages(); loadOverview(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadPayments(); loadOverview(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { loadOverview(); loadCreatedOrders(); loadAcceptedOrders(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => { loadApprovals(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_plans' }, () => { loadPlans(); })
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const sidebarItems = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -278,6 +406,8 @@ export default function AdminPanel() {
     { id: 'approvals', label: 'Content Approvals', icon: FileCheck },
     { id: 'sellers', label: 'Seller Management', icon: Shield },
     { id: 'payments', label: 'Payment Management', icon: DollarSign },
+    { id: 'orders_created', label: 'Created Orders', icon: Package },
+    { id: 'orders_accepted', label: 'Accepted Orders', icon: Package },
     { id: 'plans', label: 'Seller Plans', icon: Package },
     { id: 'reviews', label: 'Review Management', icon: Star },
     { id: 'reports', label: 'Reports & Analytics', icon: Activity },
@@ -319,6 +449,130 @@ export default function AdminPanel() {
           );
         })}
       </nav>
+    </div>
+  );
+
+  const renderSettings = () => {
+    const [fb, setFb] = useState('');
+    const [gtm, setGtm] = useState('');
+    const [ga, setGa] = useState('');
+    const [rowId, setRowId] = useState<string | null>(null);
+
+    useEffect(() => {
+      (async () => {
+        try {
+          const { data } = await supabase.from('platform_settings').select('*').order('updated_at', { ascending: false }).limit(1);
+          const row = (data && data[0]) || null;
+          if (row) {
+            setRowId(row.id);
+            setFb(row.fb_pixel_id || '');
+            setGtm(row.gtm_id || '');
+            setGa(row.ga_measurement_id || '');
+          }
+        } catch {}
+      })();
+    }, []);
+
+    const save = async () => {
+      const payload: any = { fb_pixel_id: fb || null, gtm_id: gtm || null, ga_measurement_id: ga || null };
+      if (rowId) payload.id = rowId;
+      const { error, data } = await (supabase.from('platform_settings') as any).upsert(payload).select().single();
+      if (!error && data) setRowId(data.id);
+    };
+
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold">Platform Settings</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader><CardTitle>Facebook Pixel</CardTitle></CardHeader>
+            <CardContent>
+              <Input placeholder="e.g. 123456789012345" value={fb} onChange={e => setFb(e.target.value)} />
+              <p className="text-xs text-gray-500 mt-2">Add your Pixel ID. Scripts are injected automatically.</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Google Tag Manager</CardTitle></CardHeader>
+            <CardContent>
+              <Input placeholder="e.g. GTM-XXXXXXX" value={gtm} onChange={e => setGtm(e.target.value)} />
+              <p className="text-xs text-gray-500 mt-2">Add your GTM container ID. Scripts are injected automatically.</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Google Analytics (GA4)</CardTitle></CardHeader>
+            <CardContent>
+              <Input placeholder="e.g. G-XXXXXXXXXX" value={ga} onChange={e => setGa(e.target.value)} />
+              <p className="text-xs text-gray-500 mt-2">Add your GA4 Measurement ID. Scripts are injected automatically.</p>
+            </CardContent>
+          </Card>
+        </div>
+        <div>
+          <Button onClick={save} className="bg-blue-600 hover:bg-blue-700">Save Settings</Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderOrdersTable = (rows: typeof createdOrders) => (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Order ID</TableHead>
+          <TableHead>Title</TableHead>
+          <TableHead>Buyer</TableHead>
+          <TableHead>Provider</TableHead>
+          <TableHead>Price</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Created</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((o) => (
+          <TableRow key={o.id}>
+            <TableCell className="font-mono">{o.id}</TableCell>
+            <TableCell>{o.title}</TableCell>
+            <TableCell>{o.buyer_id}</TableCell>
+            <TableCell>{o.provider_id}</TableCell>
+            <TableCell>£{(o.price || 0).toLocaleString()}</TableCell>
+            <TableCell>
+              {(() => {
+                const now = Date.now();
+                const d = (o as any).delivery_date ? new Date((o as any).delivery_date).getTime() : null;
+                let display: string = o.status;
+                if (o.status !== 'completed' && d && d < now) display = 'delayed';
+                if (o.status === 'revision') display = 'incomplete';
+                const variant = display === 'completed'
+                  ? 'default'
+                  : display === 'in_progress'
+                  ? 'secondary'
+                  : display === 'pending'
+                  ? 'outline'
+                  : 'destructive'; // delayed/incomplete
+                return <Badge variant={variant as any}>{display}</Badge>;
+              })()}
+            </TableCell>
+            <TableCell>{new Date(o.created_at).toLocaleString()}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+
+  const renderCreatedOrders = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Created Orders (Pending)</h2>
+      </div>
+      {renderOrdersTable(createdOrders)}
+    </div>
+  );
+
+  const renderAcceptedOrders = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Accepted Orders (In Progress)</h2>
+      </div>
+      {renderOrdersTable(acceptedOrders)}
     </div>
   );
 
@@ -920,6 +1174,8 @@ export default function AdminPanel() {
             {activeTab === 'approvals' && renderApprovals()}
             {activeTab === 'sellers' && renderSellers()}
             {activeTab === 'payments' && renderPayments()}
+            {activeTab === 'orders_created' && renderCreatedOrders()}
+            {activeTab === 'orders_accepted' && renderAcceptedOrders()}
             {activeTab === 'plans' && renderPlans()}
           </div>
         </div>

@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Avatar } from '../components/ui/avatar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Textarea } from '../components/ui/textarea';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
@@ -25,15 +24,13 @@ import {
   Send,
   User
 } from 'lucide-react';
-import { useProjectDetail, useProjectBids, useProjectMessages, useUpdateBidStatus, useSendMessage } from '../hooks/useProjects';
+import { useProjectDetail, useProjectBids, useUpdateBidStatus } from '../hooks/useProjects';
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('bids');
   const [messageContent, setMessageContent] = useState('');
-  const [selectedRecipient, setSelectedRecipient] = useState<string | null>(null);
 
   // Dialog states
   const [broadcastDialogOpen, setBroadcastDialogOpen] = useState(false);
@@ -44,9 +41,9 @@ export default function ProjectDetailPage() {
 
   const { project, loading: projectLoading, error: projectError } = useProjectDetail(id);
   const { bids, loading: bidsLoading } = useProjectBids(id);
-  const { messages, loading: messagesLoading } = useProjectMessages(id);
   const { updateBidStatus, loading: updateLoading } = useUpdateBidStatus();
-  const { sendMessage, loading: sendLoading } = useSendMessage();
+  const [processingBidId, setProcessingBidId] = useState<string | null>(null);
+  const [localBidStatus, setLocalBidStatus] = useState<Record<string, 'accepted' | 'rejected'>>({});
 
   if (projectLoading) {
     return (
@@ -76,19 +73,25 @@ export default function ProjectDetailPage() {
   const isOwner = project.user_id === user?.id;
 
   const handleAcceptBid = async (bidId: string) => {
-    // ... (rest of the handler)
+    try {
+      setProcessingBidId(bidId);
+      await updateBidStatus(bidId, 'accepted');
+      setLocalBidStatus((prev) => ({ ...prev, [bidId]: 'accepted' }));
+    } catch {}
+    finally { setProcessingBidId(null); }
   };
 
   const handleRejectBid = async (bidId: string) => {
-    // ... (rest of the handler)
+    try {
+      setProcessingBidId(bidId);
+      await updateBidStatus(bidId, 'rejected');
+      setLocalBidStatus((prev) => ({ ...prev, [bidId]: 'rejected' }));
+    } catch {}
+    finally { setProcessingBidId(null); }
   };
 
   const handleMessageBidder = (bidderId: string) => {
-    // ... (rest of the handler)
-  };
-
-  const handleSendMessage = async () => {
-    // ... (rest of the handler)
+    navigate(`/messages?chatWith=${bidderId}`);
   };
 
   const handleBroadcastMessage = async () => {
@@ -200,159 +203,90 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Bids and Messages Tabs */}
+            {/* Bids Section (merged view) */}
             <Card>
               <CardHeader>
-                <CardTitle>Project Activity</CardTitle>
+                <CardTitle>Bids</CardTitle>
               </CardHeader>
               <CardContent>
-                <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="bids">Bids ({bids.length})</TabsTrigger>
-                    <TabsTrigger value="messages">Messages ({messages.length})</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="bids" className="space-y-4">
-                    {bidsLoading ? (
-                      <div className="text-center py-8 text-gray-500">Loading bids...</div>
-                    ) : bids.length > 0 ? (
-                      <div className="space-y-4">
-                        {bids.map((bid) => (
-                          <Card key={bid.id} className="p-4">
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-start space-x-3">
-                                <Avatar className="h-10 w-10">
-                                  <img src={bid.seller?.avatar} alt={bid.seller?.name} />
-                                </Avatar>
-                                <div className="flex-1">
-                                  <div className="flex items-center space-x-2 mb-1">
-                                    <h4 className="font-semibold">{bid.seller?.name}</h4>
-                                    {bid.seller?.is_verified && (
-                                      <CheckCircle className="h-4 w-4 text-green-600" />
-                                    )}
-                                  </div>
-                                  <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
-                                    <div className="flex items-center space-x-1">
-                                      <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                                      <span>{bid.seller?.rating?.toFixed(1) || '0.0'}</span>
-                                      <span>({bid.seller?.review_count || 0})</span>
-                                    </div>
-                                    {bid.seller?.location && (
-                                      <div className="flex items-center space-x-1">
-                                        <MapPin className="h-3 w-3" />
-                                        <span>{bid.seller?.location}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center space-x-2 mb-2">
-                                    <Badge variant="outline" className="text-green-600">
-                                      £{bid.bid_amount}
-                                    </Badge>
-                                    <Badge
-                                      variant={
-                                        bid.status === 'accepted' ? 'default' :
-                                        bid.status === 'rejected' ? 'destructive' : 'secondary'
-                                      }
-                                    >
-                                      {bid.status}
-                                    </Badge>
-                                  </div>
-                                  {bid.message && (
-                                    <p className="text-gray-700 text-sm">{bid.message}</p>
-                                  )}
+                {bidsLoading ? (
+                  <div className="text-center py-8 text-gray-500">Loading bids...</div>
+                ) : bids.length > 0 ? (
+                  <div className="space-y-4">
+                    {bids.map((bid) => {
+                      const effectiveStatus = (localBidStatus[bid.id] || bid.status) as 'pending' | 'accepted' | 'rejected';
+                      const isProcessing = processingBidId === bid.id;
+                      return (
+                      <Card key={bid.id} className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start space-x-3">
+                            <Avatar className="h-10 w-10">
+                              <img src={bid.seller?.avatar} alt={bid.seller?.name} />
+                            </Avatar>
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <h4 className="font-semibold">{bid.seller?.name}</h4>
+                                {bid.seller?.is_verified && (
+                                  <CheckCircle className="h-4 w-4 text-green-600" />
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
+                                <div className="flex items-center space-x-1">
+                                  <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                  <span>{bid.seller?.rating?.toFixed(1) || '0.0'}</span>
+                                  <span>({bid.seller?.review_count || 0})</span>
                                 </div>
+                                {bid.seller?.location && (
+                                  <div className="flex items-center space-x-1">
+                                    <MapPin className="h-3 w-3" />
+                                    <span>{bid.seller?.location}</span>
+                                  </div>
+                                )}
                               </div>
-                              <div className="text-xs text-gray-500">
-                                {new Date(bid.created_at).toLocaleDateString()}
-                              </div>
-                            </div>
-                            {isOwner && bid.status === 'pending' && (
-                              <div className="flex space-x-2 mt-4">
-                                <Button size="sm" variant="outline" onClick={() => handleAcceptBid(bid.id)}>
-                                  Accept Bid
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => handleRejectBid(bid.id)}>
-                                  Reject Bid
-                                </Button>
-                                <Button size="sm" variant="ghost" onClick={() => handleMessageBidder(bid.seller_id)}>
-                                  Message
-                                </Button>
-                              </div>
-                            )}
-                          </Card>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        No bids received yet
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="messages" className="space-y-4">
-                    {messagesLoading ? (
-                      <div className="text-center py-8 text-gray-500">Loading messages...</div>
-                    ) : messages.length > 0 ? (
-                      <>
-                        <ScrollArea className="h-96">
-                          <div className="space-y-4">
-                            {messages.map((message) => (
-                              <div
-                                key={message.id}
-                                className={`flex ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}
-                              >
-                                <div
-                                  className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                                    message.sender_id === user?.id
-                                      ? 'bg-primary text-primary-foreground'
-                                      : 'bg-gray-100'
-                                  }`}
+                              <div className="flex items-center space-x-2 mb-2">
+                                <Badge variant="outline" className="text-green-600">
+                                  £{bid.bid_amount}
+                                </Badge>
+                                <Badge
+                                  variant={
+                                    effectiveStatus === 'accepted' ? 'default' :
+                                    effectiveStatus === 'rejected' ? 'destructive' : 'secondary'
+                                  }
                                 >
-                                  <div className="flex items-center space-x-2 mb-1">
-                                    <Avatar className="h-6 w-6">
-                                      <img src={message.sender?.avatar} alt={message.sender?.name} />
-                                    </Avatar>
-                                    <span className="text-xs font-semibold">{message.sender?.name}</span>
-                                  </div>
-                                  <p className="text-sm">{message.content}</p>
-                                  <p className="text-xs opacity-70 mt-1">
-                                    {new Date(message.sent_at).toLocaleString()}
-                                  </p>
-                                </div>
+                                  {effectiveStatus}
+                                </Badge>
                               </div>
-                            ))}
+                              {bid.message && (
+                                <p className="text-gray-700 text-sm">{bid.message}</p>
+                              )}
+                            </div>
                           </div>
-                        </ScrollArea>
-                        <div className="flex space-x-2">
-                          <Textarea
-                            placeholder="Type your message..."
-                            value={messageContent}
-                            onChange={(e) => setMessageContent(e.target.value)}
-                            className="flex-1"
-                          />
-                          <Button size="sm" onClick={handleSendMessage}>
-                            <Send className="h-4 w-4" />
-                          </Button>
+                          <div className="text-xs text-gray-500">
+                            {new Date(bid.created_at).toLocaleDateString()}
+                          </div>
                         </div>
-                      </>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        No messages yet
-                        <div className="flex space-x-2 mt-4 max-w-md mx-auto">
-                          <Textarea
-                            placeholder="Start the conversation..."
-                            value={messageContent}
-                            onChange={(e) => setMessageContent(e.target.value)}
-                            className="flex-1"
-                          />
-                          <Button size="sm" onClick={handleSendMessage}>
-                            <Send className="h-4 w-4" />
-                          </Button>
+                        {isOwner && effectiveStatus === 'pending' && (
+                          <div className="flex space-x-2 mt-4">
+                            <Button size="sm" variant="outline" disabled={isProcessing} onClick={() => handleAcceptBid(bid.id)}>
+                              {isProcessing ? 'Accepting...' : 'Accept Bid'}
+                            </Button>
+                            <Button size="sm" variant="outline" disabled={isProcessing} onClick={() => handleRejectBid(bid.id)}>
+                              {isProcessing ? 'Rejecting...' : 'Reject Bid'}
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => handleMessageBidder(bid.seller_id)}>
+                              Message
+                            </Button>
+                          </div>
+                        )}
+                        <div className="flex justify-end mt-3">
+                          <Button size="sm" onClick={() => navigate(`/project/${project.id}/bid/${bid.id}`)}>View Details</Button>
                         </div>
-                      </div>
-                    )}
-                  </TabsContent>
-                </Tabs>
+                      </Card>
+                    );})}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">No bids received yet</div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -368,10 +302,6 @@ export default function ProjectDetailPage() {
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-600">Total Bids</span>
                   <span className="font-semibold">{bids.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Messages</span>
-                  <span className="font-semibold">{messages.length}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-600">Days Left</span>

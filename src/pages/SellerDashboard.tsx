@@ -58,6 +58,9 @@ export default function SellerDashboard() {
   const [isSearching, setIsSearching] = useState(false);
   const [recentMessages, setRecentMessages] = useState<any[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
+  const [recentReviews, setRecentReviews] = useState<any[]>([]);
+  const [avgRating, setAvgRating] = useState<number>(0);
+  const [totalReviews, setTotalReviews] = useState<number>(0);
 
   console.log('SellerDashboard render:', { user: user?.id, userRole: user?.role });
 
@@ -77,8 +80,8 @@ export default function SellerDashboard() {
       inQueue: 0
     },
     reviews: {
-      average: 0,
-      total: 0,
+      average: avgRating,
+      total: totalReviews,
       fiveStar: 0,
       responseTime: 0
     },
@@ -204,6 +207,57 @@ export default function SellerDashboard() {
     return () => {
       isMounted = false;
     };
+  }, [user?.id]);
+
+  // Load reviews received by this seller
+  useEffect(() => {
+    let isMounted = true;
+    const loadReviews = async () => {
+      if (!user?.id) {
+        setRecentReviews([]);
+        setAvgRating(0);
+        setTotalReviews(0);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            order_id,
+            reviewer_id,
+            reviewee_id,
+            rating,
+            comment,
+            created_at,
+            reviewer:users!reviews_reviewer_id_fkey ( id, name, username, avatar )
+          `)
+          .eq('reviewee_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (error) throw error;
+        const list = data || [];
+        if (isMounted) {
+          setRecentReviews(list);
+          const count = list.length;
+          const sum = list.reduce((s: number, r: any) => s + (r.rating || 0), 0);
+          setTotalReviews(count);
+          setAvgRating(count ? parseFloat((sum / count).toFixed(1)) : 0);
+        }
+      } catch (e) {
+        if (isMounted) {
+          setRecentReviews([]);
+          setAvgRating(0);
+          setTotalReviews(0);
+        }
+      }
+    };
+    loadReviews();
+    const ch = supabase
+      .channel('seller_reviews')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews', filter: `reviewee_id=eq.${user?.id}` }, loadReviews)
+      .subscribe();
+    return () => { isMounted = false; supabase.removeChannel(ch); };
   }, [user?.id]);
 
   // Render search results or default content
@@ -361,6 +415,13 @@ export default function SellerDashboard() {
 
   const quickActions = [
     {
+      title: 'Buy Tokens',
+      description: 'Purchase bidding tokens',
+      icon: Zap,
+      color: 'bg-yellow-500',
+      href: '/seller/tokens'
+    },
+    {
       title: 'Create Service',
       description: 'Post your service offering',
       icon: Plus,
@@ -404,7 +465,6 @@ export default function SellerDashboard() {
     }
   ];
 
-  const recentReviews = [];
   const performanceMetrics = [];
 
   return (
@@ -794,7 +854,7 @@ export default function SellerDashboard() {
             </section>
           </div>
 
-          {/* Right Column - Messages, Quick Actions, Earnings */}
+          {/* Right Column - Messages, Reviews, Quick Actions, Earnings */}
           <div className="space-y-8">
             {/* Messages */}
             <section>
@@ -840,6 +900,46 @@ export default function SellerDashboard() {
                       ))
                     )}
                   </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* Recent Reviews */}
+            <section>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Recent Reviews</h2>
+              </div>
+              <Card>
+                <CardContent className="p-4">
+                  {recentReviews.length === 0 ? (
+                    <div className="text-center py-4 text-gray-500">No reviews yet</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentReviews.map((rev: any) => (
+                        <div key={rev.id} className="p-3 border rounded-lg">
+                          <div className="flex items-center gap-3 mb-2">
+                            <Avatar className="h-8 w-8">
+                              <img src={rev.reviewer?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={rev.reviewer?.name || rev.reviewer?.username || 'Buyer'} />
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium truncate">{rev.reviewer?.name || rev.reviewer?.username || 'Buyer'}</p>
+                                <span className="text-xs text-gray-500">{new Date(rev.created_at).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex items-center text-yellow-500 text-xs">
+                                {Array.from({ length: rev.rating || 0 }).map((_, i) => (
+                                  <Star key={i} className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          {rev.comment && (
+                            <p className="text-sm text-gray-700">{rev.comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </section>

@@ -5,6 +5,10 @@ import { Footer } from '../components/Footer';
 import { Avatar } from '../components/ui/avatar';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Textarea } from '../components/ui/textarea';
+import { Label } from '../components/ui/label';
+import { Badge } from '../components/ui/badge';
 import { MessageSquare, Send, Users, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
@@ -15,12 +19,18 @@ interface Message {
   receiver_id: string;
   content: string;
   created_at: string;
+  attachments?: string[];
+  message_type?: string; // 'text' | 'order_start' | 'order_accept' | 'delivery'
+  metadata?: any;
 }
 
 interface MessageInsert {
   sender_id: string;
   receiver_id: string;
   content: string;
+  attachments?: string[];
+  message_type?: string;
+  metadata?: any;
 }
 
 interface ChatPartner {
@@ -50,22 +60,53 @@ export default function MessagesPage() {
   const [recentlySentMessages, setRecentlySentMessages] = useState<Set<string>>(new Set());
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [currentUserRole, setCurrentUserRole] = useState<'client' | 'provider' | 'admin' | null>(null);
+
+  // Start Order dialog state
+  const [showStartDialog, setShowStartDialog] = useState(false);
+  const [orderTitle, setOrderTitle] = useState('');
+  const [orderPrice, setOrderPrice] = useState<number>(0);
+  const [orderDeliveryDays, setOrderDeliveryDays] = useState<number>(3);
+  const [orderRequirements, setOrderRequirements] = useState('');
 
   const { user } = useAuth();
   const { search } = useLocation();
   const searchParams = new URLSearchParams(search);
-  const chatWith = searchParams.get('with');
+  const chatWith = searchParams.get('chatWith') || searchParams.get('with');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load conversations and set up real-time
   useEffect(() => {
     if (user?.id) {
       loadConversations();
       setupRealtime();
+      // Load current user role for permissioned actions (e.g., Start Order by provider only)
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+          if (!error && data) setCurrentUserRole((data as any).role as any);
+        } catch {}
+      })();
     }
   }, [user?.id]);
+
+  // When arriving with chatWith param, try to auto-select that chat
+  useEffect(() => {
+    if (chatWith) {
+      setShowChatList(false);
+      // use existing helper that sets active chat and loads data
+      selectChat(chatWith);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatWith]);
 
   // Prevent body scrolling
   useEffect(() => {
@@ -83,6 +124,13 @@ export default function MessagesPage() {
       }
     }
   }, [chatWith, conversations, activeChat]);
+
+  // Scroll to bottom when switching chats
+  useEffect(() => {
+    if (activeChat) {
+      scrollToBottom();
+    }
+  }, [activeChat]);
 
   // Periodic refresh when disconnected
   useEffect(() => {
@@ -148,7 +196,7 @@ export default function MessagesPage() {
       const { data: allMessages, error } = await supabase
         .from('messages')
         .select(`
-          id, sender_id, receiver_id, content, created_at,
+          id, sender_id, receiver_id, content, created_at, attachments, message_type, metadata,
           sender:users!messages_sender_id_fkey(id, name, username, avatar, role),
           receiver:users!messages_receiver_id_fkey(id, name, username, avatar, role)
         `)
@@ -195,7 +243,10 @@ export default function MessagesPage() {
           sender_id: msg.sender_id,
           receiver_id: msg.receiver_id,
           content: msg.content,
-          created_at: msg.created_at
+          created_at: msg.created_at,
+          attachments: msg.attachments || [],
+          message_type: msg.message_type || 'text',
+          metadata: msg.metadata || null,
         });
       });
 
@@ -213,6 +264,98 @@ export default function MessagesPage() {
     }
   };
 
+  const sendOrderStart = async () => {
+    if (!user?.id || !activeChat) return;
+    if (currentUserRole !== 'provider') {
+      alert('Only providers can start an order');
+      return;
+    }
+    if (!orderTitle.trim() || orderPrice <= 0 || orderDeliveryDays <= 0) return;
+    const meta = {
+      title: orderTitle.trim(),
+      price: orderPrice,
+      delivery_days: orderDeliveryDays,
+      requirements: orderRequirements.trim() || null,
+    };
+
+    const messageData: MessageInsert = {
+      sender_id: user.id,
+      receiver_id: activeChat,
+      content: `Order proposal: ${meta.title} - £${meta.price} in ${meta.delivery_days} day(s)`,
+      message_type: 'order_start',
+      metadata: meta,
+    };
+
+    try {
+      const { data, error } = await (supabase.from('messages') as any)
+        .insert(messageData as any)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        handleNewMessage(data as Message);
+        // create pending order linked to this proposal
+        // Start Order is provider-only: current user is provider, partner is buyer
+        const buyer_id = activeChat;
+        const provider_id = user.id;
+        const deliveryDate = new Date();
+        deliveryDate.setDate(deliveryDate.getDate() + (meta.delivery_days || 0));
+        await (supabase.from('orders') as any).insert({
+          buyer_id,
+          provider_id,
+          service_id: null,
+          title: meta.title,
+          description: meta.requirements,
+          price: meta.price,
+          status: 'pending',
+          delivery_date: deliveryDate.toISOString(),
+          completed_at: null,
+          proposal_message_id: (data as any).id,
+        });
+      }
+      setShowStartDialog(false);
+      setOrderTitle('');
+      setOrderPrice(0);
+      setOrderDeliveryDays(3);
+      setOrderRequirements('');
+    } catch (e) {
+      console.error('Failed to start order', e);
+    }
+  };
+
+  const acceptOrder = async (proposalMessage: Message) => {
+    if (!user?.id || !activeChat) return;
+    // Only receiver can accept
+    if (proposalMessage.receiver_id !== user.id) return;
+    // Guard: already accepted?
+    const alreadyAccepted = messages.some(m => m.message_type === 'order_accept' && m.metadata?.proposal_id === proposalMessage.id);
+    if (alreadyAccepted) return;
+    const messageData: MessageInsert = {
+      sender_id: user.id,
+      receiver_id: activeChat,
+      content: 'Order accepted ✅',
+      message_type: 'order_accept',
+      metadata: { proposal_id: proposalMessage.id },
+    };
+    try {
+      const { data, error } = await (supabase.from('messages') as any)
+        .insert(messageData as any)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        handleNewMessage(data as Message);
+        // update linked pending order to in_progress
+        const proposalId = proposalMessage.id;
+        await (supabase.from('orders') as any)
+          .update({ status: 'in_progress' })
+          .eq('proposal_message_id', proposalId);
+      }
+    } catch (e) {
+      console.error('Failed to accept order', e);
+    }
+  };
+
   const selectChat = async (partnerId: string) => {
     const conversation = conversations.find(conv => conv.partner.id === partnerId);
 
@@ -222,6 +365,13 @@ export default function MessagesPage() {
       setConversations(prev => prev.map(conv =>
         conv.partner.id === partnerId ? { ...conv, hasNewMessage: false } : conv
       ));
+      // restore cached attachments for this chat
+      try {
+        const cached = localStorage.getItem(`chat_attachments_${partnerId}`);
+        setAttachments(cached ? JSON.parse(cached) : []);
+      } catch {
+        setAttachments([]);
+      }
     } else {
       // Load messages for new conversation
       const { data: chatMessages } = await supabase
@@ -242,6 +392,8 @@ export default function MessagesPage() {
 
     setActiveChat(partnerId);
     setShowChatList(false);
+    // Ensure we scroll to the latest message when opening a chat
+    scrollToBottom();
   };
 
   const handleNewMessage = (newMessage: Message) => {
@@ -282,9 +434,12 @@ export default function MessagesPage() {
     const messageData: MessageInsert = {
       sender_id: user.id,
       receiver_id: activeChat,
-      content: input.trim()
+      content: input.trim(),
+      attachments: attachments.length ? attachments : undefined,
+      message_type: 'text',
     };
     setInput('');
+    setAttachments([]);
 
     // Create optimistic message outside try block
     const optimisticMessage: Message = {
@@ -296,8 +451,7 @@ export default function MessagesPage() {
     try {
       setMessages(prev => [...prev, optimisticMessage]);
 
-      const { data, error } = await supabase
-        .from('messages')
+      const { data, error } = await (supabase.from('messages') as any)
         .insert(messageData as any)
         .select()
         .single();
@@ -378,7 +532,7 @@ export default function MessagesPage() {
     <div className="min-h-screen bg-gray-50 overflow-hidden">
       <DashboardHeader />
 
-      <main className="container mx-auto px-4 py-6 pb-20 md:pb-6 overflow-hidden h-[calc(100vh-120px)]">
+      <main className="container mx-auto px-4 py-6 pb-24 md:pb-6 overflow-hidden h-[calc(100vh-100px)] md:h-[calc(100vh-120px)]">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-full">
           {/* Conversations Sidebar */}
           <div className={`md:col-span-1 border rounded-lg flex flex-col h-full ${showChatList ? 'block' : 'hidden md:block'}`}>
@@ -473,7 +627,7 @@ export default function MessagesPage() {
                 </div>
 
                 {/* Messages */}
-                <div ref={messagesContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto bg-gray-50 max-h-[400px]">
+                <div ref={messagesContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto bg-gray-50 max-h-[calc(100vh-330px)] md:max-h-[400px]">
                   {/* Debug Info */}
                   <div className="mb-4 p-3 bg-gray-50 border rounded-lg text-xs">
                     <div className="grid grid-cols-2 gap-2">
@@ -518,11 +672,64 @@ export default function MessagesPage() {
                     <>
                       {messages.map((message) => (
                         <div key={message.id} className={`flex mb-3 ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-2 shadow-sm ${
+                          <div className={`w-full max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${
                             message.sender_id === user?.id ? 'bg-blue-500 text-white rounded-br-md' : 'bg-white text-gray-900 rounded-bl-md'
                           }`}>
-                            <p className="text-sm leading-relaxed">{message.content}</p>
-                            <span className={`block text-[10px] mt-1 ${
+                            {(!message.message_type || message.message_type === 'text') && (
+                              <>
+                                {message.content && (
+                                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                                )}
+                                {message.attachments && message.attachments.length > 0 && (
+                                  <div className="mt-2 grid grid-cols-2 gap-2">
+                                    {message.attachments.map((url, idx) => (
+                                      <a key={idx} href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border-2 border-white/20 hover:opacity-90 transition-opacity">
+                                        <img src={url} alt={`attachment-${idx + 1}`} className="w-full h-32 object-cover" loading="lazy" />
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {message.message_type === 'order_start' && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={message.sender_id === user?.id ? 'secondary' : 'default'}>Order Proposal</Badge>
+                                  <span className="text-xs opacity-80">{new Date(message.created_at).toLocaleString()}</span>
+                                </div>
+                                <div className="text-sm">
+                                  <div className="font-medium">{message.metadata?.title}</div>
+                                  <div>Price: £{message.metadata?.price}</div>
+                                  <div>Delivery: {message.metadata?.delivery_days} day(s)</div>
+                                  {message.metadata?.requirements && (
+                                    <div className="mt-1 text-xs opacity-90 whitespace-pre-wrap">Req: {message.metadata?.requirements}</div>
+                                  )}
+                                </div>
+                                {message.receiver_id === user?.id && (
+                                  <div className="pt-1">
+                                    {messages.some(m => m.message_type === 'order_accept' && m.metadata?.proposal_id === message.id) ? (
+                                      <Button size="sm" variant="secondary" disabled>
+                                        Accepted
+                                      </Button>
+                                    ) : (
+                                      <Button size="sm" variant="secondary" onClick={() => acceptOrder(message)}>
+                                        Accept Order
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {message.message_type === 'order_accept' && (
+                              <div className="space-y-1">
+                                <Badge variant="default">Order Accepted</Badge>
+                                <div className="text-sm">The order has been accepted and can proceed.</div>
+                              </div>
+                            )}
+
+                            <span className={`block text-[10px] mt-2 ${
                               message.sender_id === user?.id ? 'text-blue-100' : 'text-gray-500'
                             }`}>
                               {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -535,8 +742,141 @@ export default function MessagesPage() {
                   )}
                 </div>
 
-                {/* Message Input */}
-                <div className="flex-shrink-0 p-4 border-t bg-white">
+                {/* Message Input with Attachments and Start Order */}
+                <div className="flex-shrink-0 p-4 border-t bg-white space-y-3">
+                  {/* Image Previews */}
+                  {attachments.length > 0 && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {attachments.map((url, idx) => (
+                        <div key={idx} className="relative group">
+                          <img src={url} alt={`preview-${idx}`} className="w-20 h-20 object-cover rounded-lg border" />
+                          <button
+                            className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                            onClick={() => {
+                              setAttachments(prev => {
+                                const next = prev.filter((_, i) => i !== idx);
+                                try { localStorage.setItem(`chat_attachments_${activeChat}`, JSON.stringify(next)); } catch {}
+                                return next;
+                              });
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const max = 5 * 1024 * 1024; // 5MB
+                          if (file.size > max) {
+                            alert('Image should be less than 5MB');
+                            (e.target as HTMLInputElement).value = '';
+                            return;
+                          }
+                          const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+                          const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+                          if (!cloudName || !uploadPreset) {
+                            alert('Missing Cloudinary configuration');
+                            return;
+                          }
+                          const form = new FormData();
+                          form.append('file', file);
+                          form.append('upload_preset', uploadPreset);
+                          try {
+                            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/upload`, { method: 'POST', body: form });
+                            const json = await res.json();
+                            if (json.secure_url) {
+                            // Directly send image as a message (no need to press Send)
+                            if (!user?.id || !activeChat) {
+                              alert('Select a conversation first');
+                            } else {
+                              const url = json.secure_url as string;
+                              const messageData: any = {
+                                sender_id: user.id,
+                                receiver_id: activeChat,
+                                content: '',
+                                attachments: [url],
+                                message_type: 'text',
+                              };
+                              const optimistic: Message = {
+                                id: `optimistic_${Date.now()}`,
+                                ...messageData,
+                                created_at: new Date().toISOString(),
+                              };
+                              setMessages(prev => [...prev, optimistic]);
+                              try {
+                                const { data, error } = await (supabase.from('messages') as any)
+                                  .insert(messageData)
+                                  .select()
+                                  .single();
+                                if (error) throw error;
+                                if (data) {
+                                  const inserted = data as Message;
+                                  setMessages(prev => prev.map(m => m.id === optimistic.id ? inserted : m));
+                                }
+                              } catch (errSend) {
+                                console.error('Failed to send image message', errSend);
+                                setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+                                alert('Failed to send image');
+                              }
+                            }
+                          } else {
+                              alert('Upload failed');
+                            }
+                          } catch (err) {
+                            console.error('Cloudinary upload failed', err);
+                            alert('Upload failed');
+                          } finally {
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }}
+                      />
+                      <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Upload Image</Button>
+                      {currentUserRole === 'provider' && (
+                        <Dialog open={showStartDialog} onOpenChange={setShowStartDialog}>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="sm">Start Order</Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-lg">
+                            <DialogHeader>
+                              <DialogTitle>Start an Order</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                            <div className="space-y-1">
+                              <Label>Title</Label>
+                              <Input value={orderTitle} onChange={e => setOrderTitle(e.target.value)} placeholder="e.g. CQC Registration Support" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label>Price (£)</Label>
+                                <Input type="number" min={1} value={orderPrice} onChange={e => setOrderPrice(Number(e.target.value))} />
+                              </div>
+                              <div>
+                                <Label>Delivery (days)</Label>
+                                <Input type="number" min={1} value={orderDeliveryDays} onChange={e => setOrderDeliveryDays(Number(e.target.value))} />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Requirements (optional)</Label>
+                              <Textarea rows={4} value={orderRequirements} onChange={e => setOrderRequirements(e.target.value)} placeholder="Any notes or requirements" />
+                            </div>
+                            <div className="flex justify-end">
+                              <Button onClick={sendOrderStart} disabled={!orderTitle.trim() || orderPrice <= 0 || orderDeliveryDays <= 0}>Send Proposal</Button>
+                            </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      )}
+                    </div>
+
                   <div className="flex gap-3">
                     <Input
                       value={input}

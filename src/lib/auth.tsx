@@ -22,6 +22,18 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+// Simple username generator used when creating a new profile
+function generateUsername() {
+  const adjectives = ['bright', 'swift', 'clear', 'calm', 'brave', 'smart'];
+  const animals = ['lion', 'eagle', 'panda', 'otter', 'wolf', 'fox'];
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const animal = animals[Math.floor(Math.random() * animals.length)];
+  const suffix = Math.floor(1000 + Math.random() * 9000);
+  return `${adj}-${animal}-${suffix}`;
+}
+
+type DBProfile = Partial<User> & { id?: string };
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,15 +147,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setTimeout(() => reject(new Error('Profile query timeout')), 1000)
       );
 
-      const { data: profile, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
+      const { data: profile, error } = (await Promise.race([queryPromise, timeoutPromise])) as { data: DBProfile | null; error: any };
 
       if (error && error.code === 'PGRST116') {
         // Profile doesn't exist, create it with username
         const username = generateUsername();
         console.log(`Creating profile with username: ${username} for user ${supabaseUser.id}`);
 
-        const { data: newProfile, error: insertError } = await supabase
-          .from('users')
+        const { data: newProfile, error: insertError } = await (supabase.from('users') as any)
           .upsert({
             id: supabaseUser.id,
             email: supabaseUser.email,
@@ -158,11 +169,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (!insertError && newProfile) {
           const updatedUserData: User = {
             id: supabaseUser.id,
-            name: newProfile.name || initialUserData.name,
-            username: newProfile.username || username, // Should always have username
+            name: (newProfile as DBProfile).name || initialUserData.name,
+            username: (newProfile as DBProfile).username || username, // Should always have username
             email: supabaseUser.email || '',
-            avatar: newProfile.avatar || initialUserData.avatar,
-            role: newProfile.role || initialUserData.role,
+            avatar: (newProfile as DBProfile).avatar || initialUserData.avatar,
+            role: (newProfile as DBProfile).role || initialUserData.role,
           };
           setUser(updatedUserData);
           console.log('Created new profile with username:', updatedUserData.username);
@@ -173,11 +184,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Profile exists, update user data
         const updatedUserData: User = {
           id: supabaseUser.id,
-          name: profile.name || initialUserData.name,
-          username: profile.username || initialUserData.username,
+          name: (profile as DBProfile).name || initialUserData.name,
+          username: (profile as DBProfile).username || initialUserData.username,
           email: supabaseUser.email || '',
-          avatar: profile.avatar || initialUserData.avatar,
-          role: profile.role || initialUserData.role,
+          avatar: (profile as DBProfile).avatar || initialUserData.avatar,
+          role: (profile as DBProfile).role || initialUserData.role,
         };
         setUser(updatedUserData);
         console.log('Updated user with existing profile data:', updatedUserData);
@@ -222,8 +233,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const adminUsername = generateUsername();
           console.log(`Creating admin profile with username: ${adminUsername}`);
 
-          const { error: profileError } = await supabase
-            .from('users')
+          const { error: profileError } = await (supabase.from('users') as any)
             .upsert({
               id: data.user.id,
               email,

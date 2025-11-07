@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
@@ -22,6 +22,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 interface Service {
   id: string;
@@ -58,6 +59,65 @@ export default function AllServicesPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [priceRange, setPriceRange] = useState('all');
   const [ratingFilter, setRatingFilter] = useState('all');
+  const [enrichedServices, setEnrichedServices] = useState<any[] | null>(null);
+
+  // Enrich provider rating/review_count from reviews for accurate display
+  useEffect(() => {
+    const enrich = async () => {
+      try {
+        if (!services || services.length === 0) { setEnrichedServices(null); return; }
+        const providerIds = Array.from(new Set(services
+          .map((s: any) => s.provider?.id || s.provider_id)
+          .filter(Boolean)));
+        if (providerIds.length === 0) { setEnrichedServices(services); return; }
+        const { data: revs, error } = await supabase
+          .from('reviews')
+          .select('reviewee_id, rating')
+          .in('reviewee_id', providerIds);
+        if (error) throw error;
+        const map: Record<string, { sum: number; count: number }> = {};
+        (revs || []).forEach((r: any) => {
+          const id = r.reviewee_id; const rating = Number(r.rating) || 0;
+          if (!map[id]) map[id] = { sum: 0, count: 0 };
+          map[id].sum += rating; map[id].count += 1;
+        });
+        const merged = services.map((s: any) => {
+          const pid = s.provider?.id || s.provider_id; const agg = pid ? map[pid] : undefined;
+          if (agg) {
+            const avg = agg.count ? agg.sum / agg.count : 0;
+            return {
+              ...s,
+              provider: {
+                ...(s.provider || {}),
+                id: pid,
+                rating: avg,
+                review_count: agg.count,
+              }
+            };
+          }
+          // Ensure provider exists so UI can read provider.rating safely
+          if (!s.provider && pid) {
+            return {
+              ...s,
+              provider: {
+                id: pid,
+                name: s.provider_name || 'Seller',
+                avatar: s.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pid}`,
+                rating: 0,
+                review_count: 0,
+                is_verified: false,
+              }
+            };
+          }
+          return s;
+        });
+        setEnrichedServices(merged);
+      } catch {
+        setEnrichedServices(services || null);
+      }
+    };
+    enrich();
+  }, [services]);
 
   // If no services data, show error or redirect
   if (!services || !title) {
@@ -76,8 +136,10 @@ export default function AllServicesPage() {
     );
   }
 
+  const sourceServices = enrichedServices || services || [];
+
   // Filter services based on current filters
-  const filteredServices = services.filter(service => {
+  const filteredServices = sourceServices.filter((service: any) => {
     if (priceRange === 'under-500' && service.price >= 500) return false;
     if (priceRange === '500-2000' && (service.price < 500 || service.price > 2000)) return false;
     if (priceRange === 'over-2000' && service.price <= 2000) return false;

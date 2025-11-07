@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
@@ -23,20 +23,140 @@ import {
   Eye,
   FileText
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/auth.tsx';
 
 export default function MyOrders() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  // Database queries will populate these arrays; currently empty
-  const activeOrders = [];
-  const completedOrders = [];
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [reviewForOrderId, setReviewForOrderId] = useState<string | null>(null);
+  const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewText, setReviewText] = useState<string>('');
+  const [submittingReview, setSubmittingReview] = useState<boolean>(false);
+  const [reviewedOrders, setReviewedOrders] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      if (!user?.id) return;
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, completed_at, delivered_at, buyer_accepted')
+        .eq('buyer_id', user.id)
+        .order('created_at', { ascending: false });
+      if (!error && mounted) setOrders(data || []);
+      // load existing reviews for these orders by this buyer for late-review visibility
+      const orderIds = (data || []).map(o => o.id);
+      if (orderIds.length) {
+        const { data: revs } = await supabase
+          .from('reviews')
+          .select('order_id')
+          .in('order_id', orderIds)
+          .eq('reviewer_id', user.id);
+        const map: Record<string, boolean> = {};
+        (revs || []).forEach(r => { map[(r as any).order_id] = true; });
+        if (mounted) setReviewedOrders(map);
+      } else {
+        if (mounted) setReviewedOrders({});
+      }
+      setLoading(false);
+    };
+    load();
+    const ch = supabase
+      .channel('buyer_my_orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `buyer_id=eq.${user?.id}` }, load)
+      .subscribe();
+    return () => { mounted = false; supabase.removeChannel(ch); };
+  }, [user?.id]);
+
+  const displayOrders = useMemo(() => orders.map(o => ({
+    id: o.id,
+    title: o.title,
+    provider: { name: o.provider_id, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${o.provider_id}`, rating: 0, reviews: 0 },
+    status: o.status as string,
+    progress: o.status === 'completed' ? 100 : o.status === 'revision' ? 60 : 75,
+    amount: o.price || 0,
+    type: 'Custom',
+    deadline: o.delivery_date || o.created_at,
+    lastUpdate: new Date(o.created_at).toLocaleDateString(),
+    review: null,
+    rating: 0,
+    completedDate: o.completed_at || o.delivered_at,
+    delivered_at: o.delivered_at,
+    buyer_accepted: o.buyer_accepted,
+    provider_id: o.provider_id,
+  })), [orders]);
+
+  const activeOrders = displayOrders.filter(o => o.status !== 'completed');
+  const completedOrders = displayOrders.filter(o => o.status === 'completed');
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'In Progress': return 'bg-blue-100 text-blue-800';
-      case 'Revision': return 'bg-yellow-100 text-yellow-800';
-      case 'Completed': return 'bg-green-100 text-green-800';
+      case 'in_progress': return 'bg-blue-100 text-blue-800';
+      case 'revision': return 'bg-yellow-100 text-yellow-800';
+      case 'completed': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const acceptDelivery = async (id: string) => {
+    if (!window.confirm('Once you accept delivery, the order will be marked complete. Please accept only if the order is complete. Continue?')) return;
+    try {
+      setAcceptingId(id);
+      await (supabase.from('orders') as any)
+        .update({ buyer_accepted: true, status: 'completed', completed_at: new Date().toISOString() })
+        .eq('id', id);
+      // Prompt review after successful acceptance
+      setReviewForOrderId(id);
+      setReviewRating(5);
+      setReviewText('');
+    } finally {
+      setAcceptingId(null);
+    }
+  };
+
+  const submitReview = async (orderId: string, providerId: string) => {
+    if (!user?.id) return;
+    try {
+      setSubmittingReview(true);
+      await (supabase.from('reviews') as any).insert({
+        order_id: orderId,
+        reviewer_id: user.id,
+        reviewee_id: providerId,
+        rating: reviewRating,
+        comment: reviewText || null,
+      });
+      try {
+        const { data: agg } = await supabase
+          .from('reviews')
+          .select('rating')
+          .eq('reviewee_id', providerId);
+        const ratings = (agg || []).map((r: any) => Number(r.rating) || 0);
+        const count = ratings.length;
+        const avg = count ? ratings.reduce((a, b) => a + b, 0) / count : 0;
+        await (supabase.from('users') as any)
+          .update({ rating: avg, review_count: count })
+          .eq('id', providerId);
+      } catch {}
+      try {
+        await (supabase.from('notifications') as any).insert({
+          user_id: providerId,
+          title: 'New review received',
+          description: `You received a ${reviewRating}-star review`,
+          type: 'review',
+          read: false
+        });
+      } catch {}
+      setReviewForOrderId(null);
+      setReviewText('');
+      setReviewedOrders(prev => ({ ...prev, [orderId]: true }));
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -96,7 +216,7 @@ export default function MyOrders() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Spent</p>
-                  <p className="text-2xl font-bold">£{[...activeOrders, ...completedOrders].reduce((sum, order) => sum + order.amount, 0).toLocaleString()}</p>
+                  <p className="text-2xl font-bold">£{[...activeOrders, ...completedOrders].reduce((sum, order) => sum + (order.amount || 0), 0).toLocaleString()}</p>
                 </div>
                 <DollarSign className="h-8 w-8 text-green-600" />
               </div>
@@ -181,16 +301,37 @@ export default function MyOrders() {
                       </div>
 
                       <div className="flex space-x-2">
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={() => navigate(`/messages?chatWith=${order.provider_id}`)}>
                           <MessageSquare className="h-4 w-4 mr-1" />
                           Message
                         </Button>
+                        {order.delivered_at && !order.buyer_accepted && (
+                          <Button size="sm" className="bg-green-600 hover:bg-green-700 disabled:opacity-60" disabled={acceptingId === order.id} onClick={() => acceptDelivery(order.id)}>
+                            {acceptingId === order.id ? 'Accepting...' : 'Accept Delivery'}
+                          </Button>
+                        )}
                         <Button size="sm">
                           <Eye className="h-4 w-4 mr-1" />
                           View Details
                         </Button>
                       </div>
                     </div>
+                    {reviewForOrderId === order.id && (
+                      <div className="mt-4 p-4 border rounded-lg bg-gray-50">
+                        <div className="mb-2 font-medium">Rate your experience</div>
+                        <div className="flex items-center space-x-2 mb-3">
+                          <input type="number" min={1} max={5} value={reviewRating} onChange={e => setReviewRating(Number(e.target.value))} className="w-16 border rounded px-2 py-1" />
+                          <span className="text-sm text-gray-600">1-5</span>
+                        </div>
+                        <textarea value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Write a short review (optional)" className="w-full border rounded px-3 py-2 mb-3" rows={3} />
+                        <div className="flex space-x-2">
+                          <Button size="sm" className="disabled:opacity-60" disabled={submittingReview} onClick={() => submitReview(order.id, order.provider_id)}>
+                            {submittingReview ? 'Submitting...' : 'Submit Review'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setReviewForOrderId(null)}>Cancel</Button>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -278,8 +419,29 @@ export default function MyOrders() {
                           <MessageSquare className="h-4 w-4 mr-1" />
                           Contact Again
                         </Button>
+                        {!reviewedOrders[order.id] && (
+                          <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => { setReviewForOrderId(order.id); setReviewRating(5); setReviewText(''); }}>
+                            Leave Review
+                          </Button>
+                        )}
                       </div>
                     </div>
+                    {reviewForOrderId === order.id && (
+                      <div className="mt-4 p-4 border rounded-lg bg-gray-50">
+                        <div className="mb-2 font-medium">Rate your experience</div>
+                        <div className="flex items-center space-x-2 mb-3">
+                          <input type="number" min={1} max={5} value={reviewRating} onChange={e => setReviewRating(Number(e.target.value))} className="w-16 border rounded px-2 py-1" />
+                          <span className="text-sm text-gray-600">1-5</span>
+                        </div>
+                        <textarea value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Write a short review (optional)" className="w-full border rounded px-3 py-2 mb-3" rows={3} />
+                        <div className="flex space-x-2">
+                          <Button size="sm" className="disabled:opacity-60" disabled={submittingReview} onClick={() => submitReview(order.id, order.provider_id)}>
+                            {submittingReview ? 'Submitting...' : 'Submit Review'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setReviewForOrderId(null)}>Cancel</Button>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}

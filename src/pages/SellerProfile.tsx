@@ -237,11 +237,58 @@ export default function SellerProfile() {
               <CardTitle className="text-2xl">Services Offered</CardTitle>
             </CardHeader>
             <CardContent className="p-8">
-              <div className="text-center py-8">
-                <PackageIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                <h4 className="text-lg font-medium mb-2">No Services Available</h4>
-                <p className="text-gray-600">This seller hasn't published any services yet.</p>
-              </div>
+              {servicesLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : sellerServices && sellerServices.length > 0 ? (
+                <div className="grid grid-cols-1 gap-6">
+                  {sellerServices.map((service) => (
+                    <div key={service.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-medium text-gray-900">{service.title}</h3>
+                          <p className="mt-1 text-sm text-gray-600 line-clamp-2">{service.description}</p>
+                          <div className="mt-2 flex items-center">
+                            <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                            <span className="ml-1 text-sm text-gray-700">
+                              {service.rating?.toFixed(1) || 'New'} ({service.review_count || 0})
+                            </span>
+                            <span className="mx-2 text-gray-300">•</span>
+                            <span className="text-sm text-gray-600">
+                              Starting at ${service.price?.toFixed(2) || '0.00'}
+                            </span>
+                          </div>
+                        </div>
+                        {service.thumbnail && (
+                          <div className="ml-4 flex-shrink-0">
+                            <img
+                              src={service.thumbnail}
+                              alt={service.title}
+                              className="h-20 w-20 rounded-md object-cover"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-4 flex justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/service/${service.id}`)}
+                        >
+                          View Details
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <PackageIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                  <h4 className="text-lg font-medium mb-2">No Services Available</h4>
+                  <p className="text-gray-600">This seller hasn't published any services yet.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

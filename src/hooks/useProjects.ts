@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import type { Database } from '../lib/database.types';
 
 export interface Project {
   id: string;
@@ -186,7 +187,43 @@ export function useProjectBids(projectId: string | undefined) {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setBids(data || []);
+        const baseBids = (data || []) as Bid[];
+        // Enrich ratings from reviews to ensure accuracy
+        const sellerIds = Array.from(new Set(baseBids.map(b => b.seller_id).filter(Boolean)));
+        if (sellerIds.length) {
+          try {
+            const { data: revs } = await supabase
+              .from('reviews')
+              .select('reviewee_id, rating')
+              .in('reviewee_id', sellerIds);
+            const map: Record<string, { sum: number; count: number }> = {};
+            (revs || []).forEach((r: any) => {
+              const id = r.reviewee_id; const rating = Number(r.rating) || 0;
+              if (!map[id]) map[id] = { sum: 0, count: 0 };
+              map[id].sum += rating; map[id].count += 1;
+            });
+            const merged = baseBids.map(b => {
+              const agg = map[b.seller_id];
+              if (agg) {
+                const avg = agg.count ? agg.sum / agg.count : 0;
+                return {
+                  ...b,
+                  seller: {
+                    ...b.seller,
+                    rating: avg,
+                    review_count: agg.count,
+                  }
+                } as Bid;
+              }
+              return b;
+            });
+            setBids(merged);
+          } catch {
+            setBids(baseBids);
+          }
+        } else {
+          setBids(baseBids);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch bids');
       } finally {
@@ -297,10 +334,16 @@ export function useSubmitBid() {
       setLoading(true);
       setError(null);
 
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const sellerId = authData?.user?.id;
+      if (!sellerId) throw new Error('Not authenticated');
+
       const { data, error } = await (supabase as any)
         .from('bids')
         .insert({
           project_id: projectId,
+          seller_id: sellerId,
           bid_amount: bidAmount,
           message: message || null
         })
@@ -308,6 +351,23 @@ export function useSubmitBid() {
         .single();
 
       if (error) throw error;
+      try {
+        const { data: proj } = await supabase
+          .from('projects')
+          .select('user_id, title')
+          .eq('id', projectId)
+          .single();
+        const ownerId = (proj as any)?.user_id;
+        if (ownerId) {
+          await (supabase.from('notifications') as any).insert({
+            user_id: ownerId,
+            title: 'New bid received',
+            description: `Your project received a new bid of £${bidAmount}`,
+            type: 'bid',
+            read: false
+          });
+        }
+      } catch {}
       return data;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to submit bid';
@@ -330,10 +390,16 @@ export function useSendMessage() {
       setLoading(true);
       setError(null);
 
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const senderId = authData?.user?.id;
+      if (!senderId) throw new Error('Not authenticated');
+
       const { data, error } = await (supabase as any)
         .from('project_messages')
         .insert({
           project_id: projectId,
+          sender_id: senderId,
           recipient_id: recipientId,
           content
         })
@@ -514,13 +580,28 @@ export function useSellerServices(sellerId: string | undefined) {
         setLoading(true);
         const { data, error } = await supabase
           .from('services')
-          .select('*')
+          .select(`
+            *,
+            provider:users!services_provider_id_fkey (
+              id,
+              name,
+              username,
+              avatar,
+              rating,
+              review_count,
+              company,
+              job_title,
+              location
+            )
+          `)
           .eq('provider_id', sellerId)
+          .eq('is_active', true) // Only fetch active services
           .order('created_at', { ascending: false });
 
         if (error) throw error;
         setServices(data || []);
       } catch (err) {
+        console.error('Error fetching seller services:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch services');
       } finally {
         setLoading(false);
@@ -530,18 +611,41 @@ export function useSellerServices(sellerId: string | undefined) {
     fetchServices();
   }, [sellerId]);
 
-  return { services, loading, error, refetch: () => {
-    if (sellerId) {
-      supabase
+  const refetch = async () => {
+    if (!sellerId) return;
+    
+    try {
+      const { data, error } = await supabase
         .from('services')
-        .select('*')
+        .select(`
+          *,
+          provider:users!services_provider_id_fkey (
+            id,
+            name,
+            username,
+            avatar,
+            rating,
+            review_count,
+            company,
+            job_title,
+            location
+          )
+        `)
         .eq('provider_id', sellerId)
-        .order('created_at', { ascending: false })
-        .then(({ data, error }) => {
-          if (!error && data) setServices(data);
-        });
+        .eq('is_active', true) // Only fetch active services
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setServices(data);
+      }
+      return { data, error };
+    } catch (err) {
+      console.error('Error refetching services:', err);
+      return { error: err };
     }
-  }};
+  };
+
+  return { services, loading, error, refetch };
 }
 
 export function useUpdateService() {
@@ -652,6 +756,42 @@ export function useServiceDetail(serviceId: string | undefined) {
   return { service, loading, error };
 }
 
+// Function to update seller's rating and review count in the users table
+async function updateSellerRating(revieweeId: string) {
+  try {
+    // Get all reviews for this seller
+    const { data: reviews, error: fetchError } = await supabase
+      .from('reviews')
+      .select('rating')
+      .eq('reviewee_id', revieweeId);
+
+    if (fetchError) throw fetchError;
+
+    // Calculate new average rating and review count
+    const reviewCount = reviews?.length || 0;
+    const totalRating = (reviews as { rating: number }[] | null)?.reduce((sum, review) => sum + (review.rating || 0), 0) || 0;
+    const averageRating = reviewCount > 0 ? totalRating / reviewCount : 0;
+
+    const updatePayload: Database['public']['Tables']['users']['Update'] = {
+      rating: parseFloat(averageRating.toFixed(1)),
+      review_count: reviewCount,
+      updated_at: new Date().toISOString()
+    };
+
+    // Update the user's record
+    const { error: updateError } = await (supabase as any)
+      .from('users')
+      .update(updatePayload)
+      .eq('id', revieweeId);
+
+    if (updateError) throw updateError;
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating seller rating:', error);
+    return { error };
+  }
+}
+
 export function useServiceReviews(serviceId: string | undefined) {
   const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -663,42 +803,62 @@ export function useServiceReviews(serviceId: string | undefined) {
     async function fetchReviews() {
       try {
         setLoading(true);
-        // For now, return mock reviews since we don't have a reviews table yet
-        const mockReviews = [
-          {
-            id: '1',
-            user_id: 'user1',
-            user_name: 'John Smith',
-            user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=john',
-            rating: 5,
-            comment: 'Excellent service! Very professional and delivered exactly what was promised. Highly recommend!',
-            created_at: '2024-01-15',
-            helpful_count: 12
-          },
-          {
-            id: '2',
-            user_id: 'user2',
-            user_name: 'Sarah Johnson',
-            user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=sarah',
-            rating: 5,
-            comment: 'Outstanding work quality and communication. The seller went above and beyond to ensure everything was perfect.',
-            created_at: '2024-01-10',
-            helpful_count: 8
-          },
-          {
-            id: '3',
-            user_id: 'user3',
-            user_name: 'Mike Wilson',
-            user_avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=mike',
-            rating: 4,
-            comment: 'Great service overall. Quick delivery and good quality work. Will definitely use again.',
-            created_at: '2024-01-08',
-            helpful_count: 5
-          }
-        ];
-        setReviews(mockReviews);
+        
+        // First, get the service to find the provider_id
+        const { data: serviceData, error: serviceError } = await supabase
+          .from('services')
+          .select('provider_id')
+          .eq('id', serviceId)
+          .single<Pick<Database['public']['Tables']['services']['Row'], 'provider_id'>>();
+
+        if (serviceError) throw serviceError;
+        if (!serviceData?.provider_id) {
+          setReviews([]);
+          return;
+        }
+
+        // Fetch all reviews for this provider (across all services)
+        const { data, error: reviewsError } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            rating,
+            comment,
+            created_at,
+            order_id,
+            reviewer:users!reviews_reviewer_id_fkey (
+              id,
+              name,
+              avatar
+            )
+          `)
+          .eq('reviewee_id', serviceData.provider_id)
+          .order('created_at', { ascending: false });
+
+        if (reviewsError) throw reviewsError;
+
+        // Transform the data to match the expected format
+        const formattedReviews = (data || []).map((review: any) => ({
+          id: review.id,
+          user_id: review.reviewer?.id,
+          user_name: review.reviewer?.name || 'Anonymous',
+          user_avatar: review.reviewer?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${review.reviewer?.id || 'user'}`,
+          rating: review.rating,
+          comment: review.comment,
+          created_at: new Date(review.created_at).toISOString().split('T')[0],
+          helpful_count: 0 // This would need to be implemented if you track helpful votes
+        }));
+
+        setReviews(formattedReviews);
+        
+        // Update the seller's rating and review count in the users table
+        if (serviceData?.provider_id) {
+          await updateSellerRating(serviceData.provider_id);
+        }
       } catch (err) {
+        console.error('Error fetching reviews:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch reviews');
+        setReviews([]); // Return empty array on error
       } finally {
         setLoading(false);
       }
