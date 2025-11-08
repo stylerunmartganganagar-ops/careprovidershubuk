@@ -9,7 +9,7 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '../components/ui/dialog';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import {
   Users,
@@ -86,6 +86,25 @@ type MessageRecord = {
   receiver: { id?: string; email?: string | null } | null;
 };
 
+type ConversationSummary = {
+  conversationId: string;
+  participants: string[];
+  lastMessage: {
+    preview: string;
+    createdAt: string;
+    sender: string;
+  };
+  totalMessages: number;
+  flagged: boolean;
+};
+
+type ConversationDetailMessage = {
+  id: string;
+  sender: string;
+  content: string;
+  createdAt: string;
+};
+
 type SellerRecord = {
   id: string;
   name: string | null;
@@ -144,22 +163,43 @@ type SellerListItem = {
   banned: boolean;
 };
 
-type UnverifiedUserRecord = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  avatar: string | null;
-  is_verified: boolean | null;
-  created_at: string;
-  role: string | null;
-};
-
 type ServiceRecord = {
   id: string;
   title: string | null;
   provider_id: string;
   is_active: boolean | null;
   created_at: string;
+  approval_status: string | null;
+};
+
+type ProjectRecord = {
+  id: string;
+  title: string | null;
+  user_id: string;
+  status: string | null;
+  created_at: string;
+  budget: number | null;
+};
+
+type UserSummaryRecord = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  avatar: string | null;
+};
+
+type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+type ApprovalItemType = 'service_posting' | 'project_posting';
+
+type ApprovalItem = {
+  id: string;
+  type: ApprovalItemType;
+  user: { name: string; email: string; avatar: string };
+  submittedDate: string;
+  status: ApprovalStatus;
+  content: string;
+  budget?: number | null;
 };
 
 type PaymentListItem = {
@@ -206,17 +246,10 @@ export default function AdminPanel() {
     pendingPayments: 0
   });
 
-  // Messages for moderation
-  const [messages, setMessages] = useState<Array<{
-    id: string;
-    sender: string;
-    recipient: string;
-    content: string;
-    timestamp: string;
-    flagged?: boolean;
-    flagReason?: string;
-    status?: 'pending' | 'approved' | 'rejected';
-  }>>([]);
+  // Conversations for moderation
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationMessages, setConversationMessages] = useState<Record<string, ConversationDetailMessage[]>>({});
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
 
   // Orders (Created/Pending and Accepted/In Progress)
   const [createdOrders, setCreatedOrders] = useState<Array<{
@@ -239,14 +272,9 @@ export default function AdminPanel() {
   }>>([]);
 
   // Pending approvals
-  const [pendingApprovals, setPendingApprovals] = useState<Array<{
-    id: string;
-    type: 'seller_profile' | 'service_posting';
-    user: { name: string; email: string; avatar: string };
-    submittedDate: string;
-    status: 'pending' | 'approved' | 'rejected';
-    content: string;
-  }>>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalItem[]>([]);
+  const [approvalFilter, setApprovalFilter] = useState<'all' | ApprovalStatus>('all');
+  const [approvalTypeFilter, setApprovalTypeFilter] = useState<'all' | 'service_posting' | 'project_posting'>('all');
 
   // Admin user management
   const [usersList, setUsersList] = useState<Array<{
@@ -419,11 +447,182 @@ export default function AdminPanel() {
   // Sellers management
   const [sellers, setSellers] = useState<SellerListItem[]>([]);
 
+  const handleApprove = async (item: ApprovalItem) => {
+    console.log('handleApprove called with item:', item);
+    try {
+      if (item.type === 'service_posting') {
+        console.log('Approving service:', item.id);
+        const updateData = { approval_status: 'approved', is_active: true };
+        console.log('Update data for service:', updateData);
+        const { data, error } = await (supabase as any)
+          .from('services')
+          .update(updateData)
+          .eq('id', item.id)
+          .select();
+        console.log('Service update result:', { data, error });
+        if (error) throw error;
+        console.log('Service approved successfully');
+      } else if (item.type === 'project_posting') {
+        console.log('Approving project:', item.id);
+        const updateData = { status: 'open' };
+        console.log('Update data for project:', updateData);
+        const { data, error } = await (supabase as any)
+          .from('projects')
+          .update(updateData)
+          .eq('id', item.id)
+          .select();
+        console.log('Project update result:', { data, error });
+        if (error) throw error;
+        console.log('Project approved successfully');
+      }
+      console.log('Calling loadApprovals to refresh...');
+      loadApprovals(); // Refresh the list
+    } catch (e) {
+      console.error('Error approving item', e);
+    }
+  };
+
+  const handleViewSeller = async (sellerId: string) => {
+    console.log('View seller:', sellerId);
+    // TODO: Open seller details modal or navigate to seller profile
+  };
+
+  const handleWarnSeller = async (sellerId: string) => {
+    console.log('Warn seller:', sellerId);
+    // TODO: Send warning notification and increment warning count
+    // For now, just show a confirmation
+    if (window.confirm('Send warning to this seller?')) {
+      // Update warning count in database
+      // This would typically update a warnings table or field
+    }
+  };
+
+  const handleBanSeller = async (sellerId: string, currentlyBanned: boolean) => {
+    console.log(`${currentlyBanned ? 'Unban' : 'Ban'} seller:`, sellerId);
+    
+    const action = currentlyBanned ? 'unban' : 'ban';
+    if (!window.confirm(`Are you sure you want to ${action} this seller?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await (supabase as any)
+        .from('users')
+        .update({ banned: !currentlyBanned })
+        .eq('id', sellerId);
+
+      if (error) throw error;
+
+      console.log(`Seller ${action}ned successfully`);
+      // Refresh the sellers list
+      loadSellers();
+    } catch (e) {
+      console.error(`Error ${action}ning seller:`, e);
+    }
+  };
+
   // Payment management
   const [payments, setPayments] = useState<PaymentListItem[]>([]);
 
   // Seller plans (Token packages)
   const [sellerPlans, setSellerPlans] = useState<SellerPlanListItem[]>([]);
+
+  const loadApprovals = async () => {
+    console.log('loadApprovals: Starting...');
+    try {
+      const [servicesResult, projectsResult] = await Promise.all([
+        (supabase as any)
+          .from('services')
+          .select('id, title, provider_id, is_active, created_at, approval_status'),
+        (supabase as any)
+          .from('projects')
+          .select('id, title, user_id, status, created_at, budget'),
+      ]);
+
+      if (servicesResult.error) {
+        console.error('Services query error:', servicesResult.error);
+        throw servicesResult.error;
+      }
+      if (projectsResult.error) {
+        console.error('Projects query error:', projectsResult.error);
+        throw projectsResult.error;
+      }
+
+      const services = servicesResult.data ?? [];
+      const projects = projectsResult.data ?? [];
+
+      console.log(`loadApprovals: Found ${services.length} services, ${projects.length} projects`);
+
+      const referencedUserIds = new Set<string>();
+      services.forEach((service) => referencedUserIds.add(service.provider_id));
+      projects.forEach((project) => referencedUserIds.add(project.user_id));
+
+      const userLookup = new Map<string, UserSummaryRecord>();
+      if (referencedUserIds.size > 0) {
+        const { data: userRows, error: usersError } = await (supabase as any)
+          .from('users')
+          .select('id, name, email, avatar')
+          .in('id', Array.from(referencedUserIds));
+        if (usersError) {
+          console.error('User lookup error:', usersError);
+          throw usersError;
+        }
+        (userRows ?? []).forEach((row) => {
+          userLookup.set(row.id, row);
+        });
+      }
+
+      const getUserSummary = (userId: string, fallbackName: string, seed: string) => {
+        const record = userLookup.get(userId);
+        return {
+          name: record?.name ?? fallbackName,
+          email: record?.email ?? userId,
+          avatar: record?.avatar ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`,
+        };
+      };
+
+      const serviceItems: ApprovalItem[] = services
+        .map((service) => ({
+          id: service.id,
+          type: 'service_posting',
+          user: getUserSummary(service.provider_id, 'Service Provider', service.provider_id),
+          submittedDate: service.created_at,
+          status: (service.approval_status as ApprovalStatus) || 'pending',
+          content: service.title ?? 'Service awaiting approval',
+        }));
+
+      const projectItems: ApprovalItem[] = projects
+        .map((project) => {
+          const normalizedStatus: ApprovalStatus = project.status === 'open' || project.status === 'approved'
+            ? 'approved'
+            : project.status === 'cancelled' || project.status === 'rejected'
+            ? 'rejected'
+            : 'pending';
+          return {
+            id: project.id,
+            type: 'project_posting',
+            user: getUserSummary(project.user_id, 'Buyer Submission', project.user_id),
+            submittedDate: project.created_at,
+            status: normalizedStatus,
+            content: project.title ?? 'Project awaiting approval',
+            budget: project.budget ?? null,
+          };
+        });
+
+      const combined = [...serviceItems, ...projectItems]
+        .sort((a, b) => new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime())
+        .slice(0, 20);
+
+      console.log(`loadApprovals: Final result - ${combined.length} total items`);
+
+      if (isMountedRef.current) {
+        setPendingApprovals(combined);
+        setStats((prev) => ({ ...prev, pendingApprovals: combined.length }));
+      }
+    } catch (e) {
+      console.error('Error loading approvals:', e);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -465,7 +664,7 @@ export default function AdminPanel() {
           .from('messages')
           .select('is_read');
 
-        if (mounted) {
+        if (isMountedRef.current) {
           setStats(prev => ({
             ...prev,
             totalUsers: usersCount || 0,
@@ -515,104 +714,142 @@ export default function AdminPanel() {
       try {
         const { data, error } = await supabase
           .from('messages')
-          .select(`id, content, created_at, sender:users!messages_sender_id_fkey(id,email), receiver:users!messages_receiver_id_fkey(id,email)`)
+          .select(`
+            id,
+            content,
+            created_at,
+            sender_id,
+            receiver_id,
+            sender:users!messages_sender_id_fkey(id,email,name),
+            receiver:users!messages_receiver_id_fkey(id,email,name)
+          `)
           .order('created_at', { ascending: false })
-          .limit(50)
+          .limit(200)
           .returns<MessageRecord[]>();
         if (error) throw error;
-        const rows = (data || []).map((m: any) => ({
-          id: m.id,
-          sender: m.sender?.email || m.sender?.id || 'Unknown',
-          recipient: m.receiver?.email || m.receiver?.id || 'Unknown',
-          content: m.content,
-          timestamp: m.created_at,
-          status: 'pending' as const
-        }));
-        if (mounted) setMessages(rows);
+
+        const grouped = new Map<string, MessageRecord[]>();
+        (data || []).forEach((msg: any) => {
+          const userA = msg.sender?.id || msg.sender_id || 'unknown';
+          const userB = msg.receiver?.id || msg.receiver_id || 'unknown';
+          const participants = [userA, userB].sort();
+          const key = `${participants[0]}_${participants[1]}`;
+          const enriched: MessageRecord = {
+            id: msg.id,
+            content: msg.content,
+            created_at: msg.created_at,
+            sender: msg.sender,
+            receiver: msg.receiver,
+          };
+          const existing = grouped.get(key) ?? [];
+          existing.push(enriched as any);
+          grouped.set(key, existing);
+        });
+
+        const summaries: ConversationSummary[] = Array.from(grouped.entries()).map(([conversationId, messagesList]) => {
+          const lastMessage = messagesList[messagesList.length - 1];
+          const participants = [
+            lastMessage.sender?.email || lastMessage.sender?.id || 'Unknown',
+            lastMessage.receiver?.email || lastMessage.receiver?.id || 'Unknown',
+          ];
+          return {
+            conversationId,
+            participants,
+            lastMessage: {
+              preview: lastMessage.content.slice(0, 140),
+              createdAt: lastMessage.created_at,
+              sender: participants[0],
+            },
+            totalMessages: messagesList.length,
+            flagged: false,
+          };
+        });
+
+        const detailMap = summaries.reduce<Record<string, ConversationDetailMessage[]>>((acc, summary) => {
+          const messagesForConversation = grouped.get(summary.conversationId) ?? [];
+          acc[summary.conversationId] = messagesForConversation
+            .slice()
+            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+            .map((msg) => ({
+              id: msg.id,
+              sender: msg.sender?.email || msg.sender?.id || 'Unknown',
+              content: msg.content,
+              createdAt: msg.created_at,
+            }));
+          return acc;
+        }, {});
+
+        if (isMountedRef.current) {
+          setConversations(summaries);
+          setConversationMessages(detailMap);
+        }
       } catch (e) {
         console.error('Error loading messages', e);
       }
     };
 
-    const loadApprovals = async () => {
-      try {
-        const [unverifiedResult, servicesResult] = await Promise.all([
-          supabase
-            .from('users')
-            .select('id, name, email, avatar, is_verified, created_at, role')
-            .eq('is_verified', false)
-            .returns<UnverifiedUserRecord[]>(),
-          supabase
-            .from('services')
-            .select('id, title, provider_id, is_active, created_at')
-            .returns<ServiceRecord[]>(),
-        ]);
-
-        if (unverifiedResult.error) throw unverifiedResult.error;
-        if (servicesResult.error) throw servicesResult.error;
-
-        const unverifiedItems = (unverifiedResult.data ?? []).map((u) => ({
-          id: u.id,
-          type: 'seller_profile' as const,
-          user: {
-            name: u.name ?? 'Unknown user',
-            email: u.email ?? 'unknown@providershub.uk',
-            avatar: u.avatar ?? 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
-          },
-          submittedDate: u.created_at,
-          status: 'pending' as const,
-          content: 'Profile verification pending',
-        }));
-
-        const serviceItems = (servicesResult.data ?? [])
-          .filter((s) => s.is_active === false)
-          .map((s) => ({
-            id: s.id,
-            type: 'service_posting' as const,
-            user: {
-              name: 'Service Provider',
-              email: s.provider_id,
-              avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=service',
-            },
-            submittedDate: s.created_at,
-            status: 'pending' as const,
-            content: s.title ?? 'Service awaiting approval',
-          }));
-
-        const combined = [...unverifiedItems, ...serviceItems].slice(0, 10);
-        if (mounted) {
-          setPendingApprovals(combined);
-          setStats((prev) => ({ ...prev, pendingApprovals: combined.length }));
-        }
-      } catch (e) {
-        console.error('Error loading approvals', e);
-      }
-    };
+    loadApprovals();
 
     const loadSellers = async () => {
       try {
-        const { data, error } = await supabase
+        // First get all providers
+        const { data: providers, error } = await (supabase as any)
           .from('users')
-          .select('id, name, email, is_verified, created_at, is_provider')
-          .eq('is_provider', true)
+          .select('id, name, email, is_verified, created_at, role, banned')
+          .eq('role', 'provider')
           .order('created_at', { ascending: false })
           .limit(50);
+
         if (error) throw error;
-        const rows: SellerListItem[] = (data ?? []).map((u: any) => ({
-          id: u.id,
-          name: u.name ?? 'Unnamed Provider',
-          email: u.email ?? 'unknown@example.com',
-          status: u.is_verified ? 'active' : 'pending',
-          level: 'Level 1',
-          rating: 0,
-          ordersCompleted: 0,
-          earnings: 0,
-          joinDate: u.created_at ?? new Date().toISOString(),
-          lastActive: '—',
-          warnings: 0,
-          banned: false,
-        }));
-        if (mounted) setSellers(rows);
+
+        // Get seller metrics for each provider
+        const sellerMetrics = await Promise.all(
+          (providers ?? []).map(async (provider: any) => {
+            // Get review stats
+            const { data: reviews } = await (supabase as any)
+              .from('reviews')
+              .select('rating')
+              .eq('reviewee_id', provider.id);
+
+            const reviewCount = reviews?.length || 0;
+            const avgRating = reviewCount > 0
+              ? reviews!.reduce((sum: number, r: any) => sum + (r.rating || 0), 0) / reviewCount
+              : 0;
+
+            // Get completed orders and earnings
+            const { data: orders } = await (supabase as any)
+              .from('orders')
+              .select('price')
+              .eq('provider_id', provider.id)
+              .eq('status', 'completed');
+
+            const completedOrders = orders?.length || 0;
+            const totalEarnings = orders?.reduce((sum: number, o: any) => sum + (o.price || 0), 0) || 0;
+
+            // Get warning count (we'll add this later)
+            const warnings = 0; // TODO: implement warnings system
+
+            // Get banned status from database
+            const banned = provider.banned || false;
+
+            return {
+              id: provider.id,
+              name: provider.name ?? 'Unnamed Provider',
+              email: provider.email ?? 'unknown@example.com',
+              status: provider.is_verified ? 'active' : 'pending',
+              level: 'Level 1', // TODO: implement leveling system
+              rating: Math.round(avgRating * 10) / 10, // Round to 1 decimal
+              ordersCompleted: completedOrders,
+              earnings: totalEarnings,
+              joinDate: provider.created_at ?? new Date().toISOString(),
+              lastActive: '—', // TODO: implement last active tracking
+              warnings: warnings,
+              banned: banned,
+            };
+          })
+        );
+
+        if (isMountedRef.current) setSellers(sellerMetrics);
       } catch (e) {
         console.error('Error loading sellers', e);
       }
@@ -639,7 +876,7 @@ export default function AdminPanel() {
           date: p.created_at,
           dueDate: p.created_at,
         }));
-        if (mounted) setPayments(rows);
+        if (isMountedRef.current) setPayments(rows);
       } catch (e) {
         console.error('Error loading payments', e);
       }
@@ -663,7 +900,7 @@ export default function AdminPanel() {
           revenue: Number(pl.total_revenue ?? 0),
           popular: Boolean(pl.is_popular),
         }));
-        if (mounted) setSellerPlans(rows);
+        if (isMountedRef.current) setSellerPlans(rows);
       } catch (e) {
         console.error('Error loading plans', e);
       }
@@ -696,10 +933,24 @@ export default function AdminPanel() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_purchases' }, () => { loadOverview(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { loadOverview(); loadCreatedOrders(); loadAcceptedOrders(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => { loadApprovals(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => { loadApprovals(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => { loadReviews(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadReportsAnalytics(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_plans' }, () => { loadPlans(); })
       .subscribe();
+
+    // Call all load functions
+    loadOverview();
+    loadApprovals();
+    loadMessages();
+    loadSellers();
+    loadCreatedOrders();
+    loadAcceptedOrders();
+    loadPayments();
+    loadPlans();
+    loadUsers();
+    loadReviews();
+    loadReportsAnalytics();
 
     return () => {
       mounted = false;
@@ -725,7 +976,7 @@ export default function AdminPanel() {
   ];
 
   const renderSidebar = () => (
-    <div className={`bg-white border-r border-gray-200 transition-all duration-300 ${
+    <div className={`bg-white border-r border-gray-200 transition-all duration-300 h-full min-h-0 overflow-y-auto flex-shrink-0 ${
       sidebarOpen ? 'w-64' : 'w-16'
     }`}>
       <div className="p-4 border-b border-gray-200">
@@ -1233,85 +1484,82 @@ export default function AdminPanel() {
   const renderMessages = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Message Moderation</h2>
+        <div>
+          <h2 className="text-2xl font-bold">Conversation Monitoring</h2>
+          <p className="text-sm text-gray-500">Open any conversation to review the full chat history in detail.</p>
+        </div>
         <div className="flex space-x-2">
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            Filter
-          </Button>
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Export
+          <Button variant="outline" onClick={() => loadOverview()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh Stats
           </Button>
         </div>
       </div>
 
-      <div className="space-y-4">
-        {messages.length === 0 ? (
-          <Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {conversations.length === 0 ? (
+          <Card className="col-span-full">
             <CardContent className="p-6 text-center text-sm text-gray-500">
               No conversations found. Messages will appear here as users start chatting.
             </CardContent>
           </Card>
         ) : (
-          messages.map((message) => (
-            <Card key={message.id}>
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <span className="font-semibold">{message.sender}</span>
-                      <span className="text-gray-500">→</span>
-                      <span className="font-semibold">{message.recipient}</span>
-                      {message.flagged && (
-                        <Badge variant="destructive" className="text-xs">
-                          <Flag className="h-3 w-3 mr-1" />
-                          Flagged
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-gray-700 mb-2">{message.content}</p>
-                    {message.flagReason && (
-                      <Alert className="mb-4">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertDescription>
-                          Flag reason: {message.flagReason}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    <div className="text-sm text-gray-500">
-                      {new Date(message.timestamp).toLocaleString()}
+          conversations.map((conversation) => (
+            <Card key={conversation.conversationId}>
+              <CardContent className="p-6 flex flex-col h-full">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <div className="text-sm text-gray-500">Participants</div>
+                    <div className="font-semibold text-gray-900">
+                      {conversation.participants.join('  B7 ')}
                     </div>
                   </div>
-                  <Badge variant={
-                    message.status === 'approved' ? 'default' :
-                    message.status === 'pending' ? 'secondary' : 'destructive'
-                  }>
-                    {message.status}
-                  </Badge>
+                  <div className="text-xs text-gray-500">{conversation.totalMessages} messages</div>
                 </div>
 
-                <div className="flex space-x-2">
-                  <Button size="sm" variant="outline">
-                    <Eye className="h-4 w-4 mr-1" />
-                    View Conversation
-                  </Button>
-                  {message.status === 'pending' && (
-                    <>
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                        <CheckCircle className="h-4 w-4 mr-1" />
-                        Approve
+                <div className="flex-1">
+                  <div className="text-xs uppercase tracking-wide text-gray-400 mb-1">Last message</div>
+                  <div className="text-sm text-gray-700 line-clamp-3">
+                    {conversation.lastMessage.preview || 'No content'}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-gray-500 mt-4">
+                  <span>{conversation.lastMessage.sender}</span>
+                  <span>{new Date(conversation.lastMessage.createdAt).toLocaleString()}</span>
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <Dialog open={selectedConversationId === conversation.conversationId} onOpenChange={(open) => setSelectedConversationId(open ? conversation.conversationId : null)}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" variant="outline">
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Conversation
                       </Button>
-                      <Button size="sm" variant="destructive">
-                        <XCircle className="h-4 w-4 mr-1" />
-                        Reject
-                      </Button>
-                    </>
-                  )}
-                  <Button size="sm" variant="outline">
-                    <Ban className="h-4 w-4 mr-1" />
-                    Ban User
-                  </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-4xl">
+                      <DialogHeader>
+                        <DialogTitle>Conversation Details</DialogTitle>
+                      </DialogHeader>
+                      <div className="text-sm text-gray-500 mb-4">
+                        Participants: {conversation.participants.join('  B7 ')}
+                      </div>
+                      <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-2">
+                        {(conversationMessages[conversation.conversationId] ?? []).map((msg) => (
+                          <div key={msg.id} className="rounded-lg border border-gray-200 p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold text-gray-800">{msg.sender}</span>
+                              <span className="text-xs text-gray-500">{new Date(msg.createdAt).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{msg.content}</p>
+                          </div>
+                        ))}
+                        {(conversationMessages[conversation.conversationId] ?? []).length === 0 && (
+                          <div className="text-sm text-gray-500">No messages available for this conversation.</div>
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </CardContent>
             </Card>
@@ -1427,12 +1675,22 @@ export default function AdminPanel() {
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Content Approvals</h2>
         <div className="flex space-x-2">
-          <Select>
+          <Select value={approvalTypeFilter} onValueChange={(value) => setApprovalTypeFilter(value as 'all' | 'service_posting' | 'project_posting')}>
             <SelectTrigger className="w-32">
-              <SelectValue placeholder="Filter" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="service_posting">Services</SelectItem>
+              <SelectItem value="project_posting">Projects</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={approvalFilter} onValueChange={(value) => setApprovalFilter(value as 'all' | ApprovalStatus)}>
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
@@ -1442,7 +1700,14 @@ export default function AdminPanel() {
       </div>
 
       <div className="space-y-4">
-        {pendingApprovals.map((approval) => (
+        {pendingApprovals
+          .filter((approval) => 
+            approvalTypeFilter === 'all' || approval.type === approvalTypeFilter
+          )
+          .filter((approval) => 
+            approvalFilter === 'all' || approval.status === approvalFilter
+          )
+          .map((approval) => (
           <Card key={approval.id}>
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
@@ -1455,12 +1720,17 @@ export default function AdminPanel() {
                       <span className="font-semibold">{approval.user.name}</span>
                       <span className="text-gray-500">{approval.user.email}</span>
                       <Badge variant="outline" className="text-xs">
-                        {approval.type.replace('_', ' ').toUpperCase()}
+                        {approval.type === 'service_posting' ? 'SERVICE' : 'PROJECT'}
                       </Badge>
                     </div>
                     <p className="text-gray-700 mb-2">{approval.content}</p>
+                    {approval.type === 'project_posting' && approval.budget !== null && (
+                      <div className="text-sm text-gray-500 mb-1">
+                        Estimated budget: £{Number(approval.budget).toLocaleString()}
+                      </div>
+                    )}
                     <div className="text-sm text-gray-500">
-                      Submitted: {approval.submittedDate}
+                      Submitted: {new Date(approval.submittedDate).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -1483,6 +1753,9 @@ export default function AdminPanel() {
                   <DialogContent className="max-w-4xl">
                     <DialogHeader>
                       <DialogTitle>Content Review</DialogTitle>
+                      <DialogDescription>
+                        Review the content details before approving or rejecting.
+                      </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
                       <div>
@@ -1494,25 +1767,67 @@ export default function AdminPanel() {
                           rows={4}
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm font-medium">Submitter</label>
                           <Input value={approval.user.name} readOnly className="mt-1" />
                         </div>
                         <div>
                           <label className="text-sm font-medium">Type</label>
-                          <Input value={approval.type} readOnly className="mt-1" />
+                          <Input value={approval.type === 'service_posting' ? 'Service Listing' : 'Project Posting'} readOnly className="mt-1" />
                         </div>
+                        {approval.type === 'project_posting' && (
+                          <div>
+                            <label className="text-sm font-medium">Budget</label>
+                            <Input
+                              value={
+                                approval.budget !== null
+                                  ? `£${Number(approval.budget).toLocaleString()}`
+                                  : 'Not provided'
+                              }
+                              readOnly
+                              className="mt-1"
+                            />
+                          </div>
+                        )}
                       </div>
                       <div className="flex space-x-2">
-                        <Button className="bg-green-600 hover:bg-green-700">
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          Approve
-                        </Button>
-                        <Button variant="destructive">
-                          <XCircle className="h-4 w-4 mr-1" />
-                          Reject
-                        </Button>
+                        {approval.status === 'pending' && (
+                          <>
+                            <Button className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(approval)}>
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Approve
+                            </Button>
+                            <Button variant="destructive" onClick={() => handleReject(approval)}>
+                              <XCircle className="h-4 w-4 mr-1" />
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        {approval.status === 'approved' && (
+                          <div className="flex items-center space-x-2">
+                            <Badge className="bg-green-100 text-green-800">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Approved
+                            </Badge>
+                            <Button variant="outline" size="sm" onClick={() => handleReject(approval)}>
+                              <XCircle className="h-4 w-4 mr-1" />
+                              Revoke Approval
+                            </Button>
+                          </div>
+                        )}
+                        {approval.status === 'rejected' && (
+                          <div className="flex items-center space-x-2">
+                            <Badge variant="destructive">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Rejected
+                            </Badge>
+                            <Button className="bg-green-600 hover:bg-green-700" size="sm" onClick={() => handleApprove(approval)}>
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Approve Now
+                            </Button>
+                          </div>
+                        )}
                         <Button variant="outline">
                           <Edit className="h-4 w-4 mr-1" />
                           Request Changes
@@ -1522,18 +1837,60 @@ export default function AdminPanel() {
                   </DialogContent>
                 </Dialog>
 
-                <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                  <CheckCircle className="h-4 w-4 mr-1" />
-                  Quick Approve
-                </Button>
-                <Button size="sm" variant="destructive">
-                  <XCircle className="h-4 w-4 mr-1" />
-                  Reject
-                </Button>
+                {approval.status === 'pending' && (
+                  <>
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(approval)}>
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => handleReject(approval)}>
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {approval.status === 'approved' && (
+                  <div className="flex items-center space-x-2">
+                    <Badge className="bg-green-100 text-green-800">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Approved
+                    </Badge>
+                    <Button variant="outline" size="sm" onClick={() => handleReject(approval)}>
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Revoke
+                    </Button>
+                  </div>
+                )}
+                {approval.status === 'rejected' && (
+                  <div className="flex items-center space-x-2">
+                    <Badge variant="destructive">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Rejected
+                    </Badge>
+                    <Button className="bg-green-600 hover:bg-green-700" size="sm" onClick={() => handleApprove(approval)}>
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Approve
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
         ))}
+        {pendingApprovals
+          .filter((approval) => 
+            approvalTypeFilter === 'all' || approval.type === approvalTypeFilter
+          )
+          .filter((approval) => 
+            approvalFilter === 'all' || approval.status === approvalFilter
+          )
+          .length === 0 && (
+          <Card>
+            <CardContent className="p-6 text-center text-sm text-gray-500">
+              No submissions match this filter.
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -1579,10 +1936,11 @@ export default function AdminPanel() {
               </TableCell>
               <TableCell>
                 <Badge variant={
+                  seller.banned ? 'destructive' :
                   seller.status === 'active' ? 'default' :
                   seller.status === 'suspended' ? 'destructive' : 'secondary'
                 }>
-                  {seller.status}
+                  {seller.banned ? 'banned' : seller.status}
                 </Badge>
               </TableCell>
               <TableCell>{seller.level}</TableCell>
@@ -1601,15 +1959,19 @@ export default function AdminPanel() {
               </TableCell>
               <TableCell>
                 <div className="flex space-x-1">
-                  <Button size="sm" variant="outline">
+                  <Button size="sm" variant="outline" onClick={() => handleViewSeller(seller.id)}>
                     <Eye className="h-4 w-4" />
                   </Button>
                   {!seller.banned && (
-                    <Button size="sm" variant="outline">
+                    <Button size="sm" variant="outline" onClick={() => handleWarnSeller(seller.id)}>
                       <AlertTriangle className="h-4 w-4" />
                     </Button>
                   )}
-                  <Button size="sm" variant={seller.banned ? "outline" : "destructive"}>
+                  <Button 
+                    size="sm" 
+                    variant={seller.banned ? "outline" : "destructive"}
+                    onClick={() => handleBanSeller(seller.id, seller.banned)}
+                  >
                     {seller.banned ? <Unlock className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                   </Button>
                 </div>
@@ -1835,13 +2197,15 @@ export default function AdminPanel() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <DashboardHeader />
+    <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+      <div className="flex-none">
+        <DashboardHeader />
+      </div>
 
-      <div className="flex">
+      <div className="flex flex-1 min-h-0">
         {renderSidebar()}
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           <div className="p-8">
             {activeTab === 'overview' && renderOverview()}
             {activeTab === 'users' && renderUsers()}

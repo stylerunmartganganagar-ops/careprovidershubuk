@@ -124,7 +124,7 @@ export function useBuyerProjects(userId: string | undefined) {
     async function fetchProjects() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('projects')
           .select('*')
           .eq('user_id', userId)
@@ -167,7 +167,7 @@ export function useProjectBids(projectId: string | undefined) {
     async function fetchBids() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('bids')
           .select(`
             *,
@@ -192,7 +192,7 @@ export function useProjectBids(projectId: string | undefined) {
         const sellerIds = Array.from(new Set(baseBids.map(b => b.seller_id).filter(Boolean)));
         if (sellerIds.length) {
           try {
-            const { data: revs } = await supabase
+            const { data: revs } = await (supabase as any)
               .from('reviews')
               .select('reviewee_id, rating')
               .in('reviewee_id', sellerIds);
@@ -261,7 +261,7 @@ export function useProjectMessages(projectId: string | undefined) {
     async function fetchMessages() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('project_messages')
           .select(`
             *,
@@ -275,7 +275,7 @@ export function useProjectMessages(projectId: string | undefined) {
           .order('sent_at', { ascending: true });
 
         if (error) throw error;
-        setMessages(data || []);
+        setMessages((data as any) || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch messages');
       } finally {
@@ -300,7 +300,7 @@ export function useProjectDetail(projectId: string | undefined) {
     async function fetchProject() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('projects')
           .select('*')
           .eq('id', projectId)
@@ -352,7 +352,7 @@ export function useSubmitBid() {
 
       if (error) throw error;
       try {
-        const { data: proj } = await supabase
+        const { data: proj } = await (supabase as any)
           .from('projects')
           .select('user_id, title')
           .eq('id', projectId)
@@ -462,7 +462,7 @@ export function useAvailableProjects(sellerId: string | undefined) {
       try {
         setLoading(true);
         // Get projects that are open and not posted by this seller
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('projects')
           .select('*')
           .eq('status', 'open')
@@ -508,7 +508,7 @@ export function useFeaturedProjects(sellerId: string | undefined) {
       try {
         setLoading(true);
         // Get high-budget projects that are open and not posted by this seller
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('projects')
           .select('*')
           .eq('status', 'open')
@@ -544,7 +544,7 @@ export function useSearchBasedProjects(sellerId: string | undefined) {
       try {
         setLoading(true);
         // For now, just get recent projects. In a real app, this would be based on seller's search history
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('projects')
           .select('*')
           .eq('status', 'open')
@@ -578,7 +578,7 @@ export function useSellerServices(sellerId: string | undefined) {
     async function fetchServices() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('services')
           .select(`
             *,
@@ -615,7 +615,7 @@ export function useSellerServices(sellerId: string | undefined) {
     if (!sellerId) return;
     
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('services')
         .select(`
           *,
@@ -718,7 +718,7 @@ export function useServiceDetail(serviceId: string | undefined) {
     async function fetchService() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('services')
           .select(`
             *,
@@ -741,7 +741,16 @@ export function useServiceDetail(serviceId: string | undefined) {
         if (!data) {
           setError('Service not found');
         } else {
-          setService(data);
+          // For buyers, only show username instead of real name
+          const modifiedData = {
+            ...data,
+            provider: {
+              ...data.provider,
+              // Buyers see only username, not real name
+              name: data.provider?.username || 'Unknown Seller'
+            }
+          };
+          setService(modifiedData);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch service');
@@ -760,7 +769,7 @@ export function useServiceDetail(serviceId: string | undefined) {
 export async function updateSellerRating(revieweeId: string) {
   try {
     // Get all reviews for this seller
-    const { data: reviews, error: fetchError } = await supabase
+    const { data: reviews, error: fetchError } = await (supabase as any)
       .from('reviews')
       .select('rating')
       .eq('reviewee_id', revieweeId);
@@ -805,11 +814,11 @@ export function useServiceReviews(serviceId: string | undefined) {
         setLoading(true);
         
         // First, get the service to find the provider_id
-        const { data: serviceData, error: serviceError } = await supabase
+        const { data: serviceData, error: serviceError } = await (supabase as any)
           .from('services')
           .select('provider_id')
           .eq('id', serviceId)
-          .single<Pick<Database['public']['Tables']['services']['Row'], 'provider_id'>>();
+          .single();
 
         if (serviceError) throw serviceError;
         if (!serviceData?.provider_id) {
@@ -818,7 +827,7 @@ export function useServiceReviews(serviceId: string | undefined) {
         }
 
         // Fetch all reviews for this provider (across all services)
-        const { data, error: reviewsError } = await supabase
+        const { data, error: reviewsError } = await (supabase as any)
           .from('reviews')
           .select(`
             id,
@@ -876,7 +885,7 @@ export function useRelatedServices(serviceId: string | undefined, category?: str
     async function fetchRelatedServices() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('services')
           .select(`
             *,
@@ -892,11 +901,23 @@ export function useRelatedServices(serviceId: string | undefined, category?: str
           .eq('category', category)
           .neq('id', serviceId || '')
           .eq('is_active', true)
+          .eq('approval_status', 'approved')
           .order('created_at', { ascending: false })
           .limit(6);
 
         if (error) throw error;
-        setServices(data || []);
+        
+        // Modify data to show only username for buyers
+        const modifiedData = (data as any)?.map((service: any) => ({
+          ...service,
+          provider: {
+            ...service.provider,
+            // Buyers see only username, not real name
+            name: service.provider?.username || 'Unknown Seller'
+          }
+        }));
+        
+        setServices(modifiedData || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch related services');
       } finally {
@@ -921,7 +942,7 @@ export function useSellerProfile(sellerId: string | undefined) {
     async function fetchSeller() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('users')
           .select(`
             id,
@@ -993,7 +1014,7 @@ export function useServices() {
     async function fetchServices() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('services')
           .select(`
             *,
@@ -1010,6 +1031,7 @@ export function useServices() {
             )
           `)
           .eq('is_active', true)
+          .eq('approval_status', 'approved')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -1019,7 +1041,18 @@ export function useServices() {
           providerUsername: service.provider?.username,
           providerName: service.provider?.name
         })));
-        setServices(data as any || []);
+        
+        // Modify data to show only username for buyers
+        const modifiedData = (data as any)?.map((service: any) => ({
+          ...service,
+          provider: {
+            ...service.provider,
+            // Buyers see only username, not real name
+            name: service.provider?.username || 'Unknown Seller'
+          }
+        }));
+        
+        setServices(modifiedData || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch services');
       } finally {
@@ -1073,7 +1106,7 @@ export function useSellerPortfolio(providerId: string | undefined) {
     async function fetchPortfolio() {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('portfolios')
           .select('*')
           .eq('provider_id', providerId)
@@ -1093,7 +1126,7 @@ export function useSellerPortfolio(providerId: string | undefined) {
 
   return { portfolioItems, loading, error, refetch: () => {
     if (providerId) {
-      supabase
+      (supabase as any)
         .from('portfolios')
         .select('*')
         .eq('provider_id', providerId)

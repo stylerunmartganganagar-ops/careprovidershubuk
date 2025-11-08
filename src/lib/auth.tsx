@@ -165,7 +165,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       const { data: profile, error } = (await Promise.race([queryPromise, timeoutPromise])) as { data: DBProfile | null; error: any };
 
-      if (error && error.code === 'PGRST116') {
+      if (!error && profile) {
+        // Check if user is banned
+        if ((profile as any).banned) {
+          console.log('User is banned, signing out');
+          await supabase.auth.signOut();
+          setUser(null);
+          return;
+        }
+
+        // Profile exists, update user data
+        const updatedUserData: User = {
+          id: supabaseUser.id,
+          name: (profile as DBProfile).name || initialUserData.name,
+          username: (profile as DBProfile).username || initialUserData.username,
+          email: supabaseUser.email || '',
+          avatar: (profile as DBProfile).avatar || initialUserData.avatar,
+          role: (profile as DBProfile).role || initialUserData.role,
+          phone_verified: '',
+          description: ''
+        };
+        setUser(updatedUserData);
+        console.log('Updated user with existing profile data:', updatedUserData);
+      } else if (error && error.code === 'PGRST116') {
         // Profile doesn't exist, create it with username
         const username = generateUsername();
         console.log(`Creating profile with username: ${username} for user ${supabaseUser.id}`);
@@ -198,20 +220,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } else {
           console.error('Failed to create profile with username:', insertError);
         }
-      } else if (!error && profile) {
-        // Profile exists, update user data
-        const updatedUserData: User = {
-          id: supabaseUser.id,
-          name: (profile as DBProfile).name || initialUserData.name,
-          username: (profile as DBProfile).username || initialUserData.username,
-          email: supabaseUser.email || '',
-          avatar: (profile as DBProfile).avatar || initialUserData.avatar,
-          role: (profile as DBProfile).role || initialUserData.role,
-          phone_verified: '',
-          description: ''
-        };
-        setUser(updatedUserData);
-        console.log('Updated user with existing profile data:', updatedUserData);
       }
     } catch (err) {
       // Only log actual errors, not timeouts (which are expected and non-blocking)

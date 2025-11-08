@@ -51,7 +51,10 @@ export default function MyOrders() {
       setLoading(true);
       const { data, error } = await supabase
         .from('orders')
-        .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, completed_at, delivered_at, buyer_accepted')
+        .select(`
+          id, title, buyer_id, provider_id, price, status, created_at, delivery_date, completed_at, delivered_at, buyer_accepted,
+          provider:users!orders_provider_id_fkey(username, name)
+        `)
         .eq('buyer_id', user.id)
         .order('created_at', { ascending: false });
       
@@ -85,7 +88,12 @@ export default function MyOrders() {
   const displayOrders = useMemo(() => orders.map(o => ({
     id: o.id,
     title: o.title,
-    provider: { name: o.provider_id, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${o.provider_id}`, rating: 0, reviews: 0 },
+    provider: { 
+      name: o.provider?.username || 'Unknown Seller', 
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${o.provider_id}`, 
+      rating: 0, 
+      reviews: 0 
+    },
     status: o.status as string,
     progress: o.status === 'completed' ? 100 : o.status === 'revision' ? 60 : 75,
     amount: o.price || 0,

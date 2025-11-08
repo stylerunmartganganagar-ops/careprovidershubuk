@@ -90,7 +90,7 @@ export default function BidDetailPage() {
                   </Avatar>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="font-semibold">{bid.seller?.name || bid.seller?.username}</div>
+                      <div className="font-semibold">{bid.seller?.username || 'Unknown Seller'}</div>
                       <div className="flex items-center text-xs text-gray-600 gap-1">
                         <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
                         <span>{(bid.seller?.rating || 0).toFixed(1)}</span>
