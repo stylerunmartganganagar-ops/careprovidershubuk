@@ -37,11 +37,11 @@ export function useNotifications() {
       const transformed = (dbNotifications || []).map(n => ({
         id: n.id,
         title: n.title,
-        description: n.description,
+        description: n.description ?? n.message ?? '',
         time: formatTimeAgo(new Date(n.created_at)),
         timestamp: n.created_at,
-        unread: !n.read,
-        type: n.type as Notification['type'],
+        unread: !n.is_read,
+        type: (n.type as Notification['type']) || 'system',
         related_id: n.related_id
       }));
 
@@ -59,9 +59,8 @@ export function useNotifications() {
 
   const markAsRead = async (notificationId: string) => {
     try {
-      await supabase
-        .from('notifications')
-        .update({ read: true })
+      await (supabase.from('notifications') as any)
+        .update({ is_read: true } as any)
         .eq('id', notificationId);
 
       setNotifications(prev =>
@@ -79,11 +78,10 @@ export function useNotifications() {
     if (!user?.id) return;
 
     try {
-      await supabase
-        .from('notifications')
-        .update({ read: true })
+      await (supabase.from('notifications') as any)
+        .update({ is_read: true } as any)
         .eq('user_id', user.id)
-        .eq('read', false);
+        .eq('is_read', false);
 
       setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
       setUnreadCount(0);
@@ -93,24 +91,35 @@ export function useNotifications() {
   };
 
   useEffect(() => {
-    fetchNotifications();
+    let isMounted = true;
 
-    // Set up real-time subscription
-    if (user?.id) {
-      const channel = supabase
-        .channel('notifications_realtime')
-        .on('postgres_changes', {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${user.id}`
-        }, (payload) => {
-          fetchNotifications(); // Refresh when new notification arrives
-        })
-        .subscribe();
+    const load = async () => {
+      if (!isMounted) return;
+      await fetchNotifications();
+    };
 
-      return () => supabase.removeChannel(channel);
+    load();
+
+    if (!user?.id) {
+      return () => { isMounted = false; };
     }
+
+    const channel = supabase
+      .channel('notifications_realtime')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, () => {
+        fetchNotifications();
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
   }, [user?.id]);
 
   return {

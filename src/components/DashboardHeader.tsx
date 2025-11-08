@@ -88,7 +88,7 @@ export function DashboardHeader() {
           .from('messages')
           .select('*', { count: 'exact', head: true })
           .eq('receiver_id', user.id)
-          .eq('read', false);
+          .eq('is_read', false);
 
         // Get total spent
         const { data: orders } = await supabase

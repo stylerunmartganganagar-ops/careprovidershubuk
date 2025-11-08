@@ -69,7 +69,8 @@ export default function AdminPanel() {
     totalOrders: 0,
     pendingApprovals: 0,
     reportedMessages: 0,
-    revenue: 0,
+    tokensSold: 0,
+    tokenRevenue: 0,
     pendingPayments: 0
   });
 
@@ -168,17 +169,18 @@ export default function AdminPanel() {
           supabase.from('orders').select('*', { count: 'exact', head: true }),
         ]);
 
-        const { data: paymentsDataPending } = await supabase
-          .from('payments')
-          .select('amount, status');
+        const { data: tokenPurchases, error: tokenPurchasesError } = await supabase
+          .from('token_purchases')
+          .select('tokens, amount, status');
 
-        const revenue = (paymentsDataPending || [])
-          .filter(p => p.status === 'completed')
-          .reduce((sum, p: any) => sum + (p.amount || 0), 0);
+        if (tokenPurchasesError) throw tokenPurchasesError;
 
-        const pendingPayments = (paymentsDataPending || [])
-          .filter(p => p.status === 'pending')
-          .reduce((sum, p: any) => sum + (p.amount || 0), 0);
+        const completedPurchases = (tokenPurchases || []).filter(purchase => !purchase.status || purchase.status === 'completed');
+        const tokensSold = completedPurchases.reduce((sum, purchase: any) => sum + Number(purchase.tokens || 0), 0);
+        const tokenRevenue = completedPurchases.reduce((sum, purchase: any) => sum + Number(purchase.amount || 0), 0);
+        const pendingPayments = (tokenPurchases || [])
+          .filter(purchase => purchase.status === 'pending')
+          .reduce((sum, purchase: any) => sum + Number(purchase.amount || 0), 0);
 
         // Use unread messages as a proxy for reported count (no flagged field present)
         const { data: unreadMsgs } = await supabase
@@ -191,7 +193,8 @@ export default function AdminPanel() {
             totalUsers: usersCount || 0,
             activeSellers: providersCount || 0,
             totalOrders: ordersCount || 0,
-            revenue,
+            tokensSold,
+            tokenRevenue,
             pendingPayments,
             reportedMessages: (unreadMsgs || []).filter(m => m.is_read === false).length,
           }));
@@ -387,7 +390,8 @@ export default function AdminPanel() {
       .channel('admin_panel_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => { loadOverview(); loadSellers(); loadApprovals(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => { loadMessages(); loadOverview(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadPayments(); loadOverview(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadPayments(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'token_purchases' }, () => { loadOverview(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { loadOverview(); loadCreatedOrders(); loadAcceptedOrders(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => { loadApprovals(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_plans' }, () => { loadPlans(); })
@@ -620,8 +624,20 @@ export default function AdminPanel() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Revenue</p>
-                <p className="text-2xl font-bold">£{stats.revenue.toLocaleString()}</p>
+                <p className="text-sm font-medium text-gray-600">Tokens Sold</p>
+                <p className="text-2xl font-bold">{(stats.tokensSold ?? 0).toLocaleString()}</p>
+              </div>
+              <Package className="h-8 w-8 text-orange-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Token Revenue</p>
+                <p className="text-2xl font-bold">£{(stats.tokenRevenue ?? 0).toLocaleString()}</p>
               </div>
               <DollarSign className="h-8 w-8 text-yellow-600" />
             </div>

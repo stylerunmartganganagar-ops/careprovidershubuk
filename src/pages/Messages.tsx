@@ -22,6 +22,7 @@ interface Message {
   attachments?: string[];
   message_type?: string; // 'text' | 'order_start' | 'order_accept' | 'delivery'
   metadata?: any;
+  is_read?: boolean;
 }
 
 interface MessageInsert {
@@ -78,6 +79,39 @@ export default function MessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const markConversationAsRead = async (partnerId: string) => {
+    if (!user?.id) return;
+    try {
+      await (supabase.from('messages') as any)
+        .update({ is_read: true })
+        .eq('sender_id', partnerId)
+        .eq('receiver_id', user.id)
+        .eq('is_read', false);
+
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.sender_id === partnerId ? { ...msg, is_read: true } : msg
+        )
+      );
+
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.partner.id === partnerId
+            ? {
+                ...conv,
+                hasNewMessage: false,
+                messages: conv.messages.map(msg =>
+                  msg.sender_id === partnerId ? { ...msg, is_read: true } : msg
+                ),
+              }
+            : conv
+        )
+      );
+    } catch (error) {
+      console.error('Failed to mark conversation as read', error);
+    }
+  };
 
   // Load conversations and set up real-time
   useEffect(() => {
@@ -247,10 +281,15 @@ export default function MessagesPage() {
           attachments: msg.attachments || [],
           message_type: msg.message_type || 'text',
           metadata: msg.metadata || null,
+          is_read: msg.is_read,
         });
       });
 
       const conversationList = Array.from(conversationMap.values())
+        .map(conv => ({
+          ...conv,
+          hasNewMessage: conv.messages.some(m => m.receiver_id === user.id && !m.is_read),
+        }))
         .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
 
       console.log('Created conversations:', conversationList.length);
@@ -372,6 +411,7 @@ export default function MessagesPage() {
       } catch {
         setAttachments([]);
       }
+      await markConversationAsRead(partnerId);
     } else {
       // Load messages for new conversation
       const { data: chatMessages } = await supabase
@@ -380,7 +420,7 @@ export default function MessagesPage() {
         .or(`and(sender_id.eq.${user?.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user?.id})`)
         .order('created_at', { ascending: true });
 
-      const messagesToShow = chatMessages || [];
+      const messagesToShow = (chatMessages || []).map(msg => ({ ...msg, is_read: msg.is_read ?? false }));
       setMessages(messagesToShow);
       setPartnerInfo({
         id: partnerId,
@@ -388,6 +428,7 @@ export default function MessagesPage() {
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
         role: 'user'
       });
+      await markConversationAsRead(partnerId);
     }
 
     setActiveChat(partnerId);
@@ -405,6 +446,9 @@ export default function MessagesPage() {
     if ((newMessage.sender_id === user?.id && newMessage.receiver_id === activeChat) ||
         (newMessage.sender_id === activeChat && newMessage.receiver_id === user?.id)) {
       setMessages(prev => [...prev, newMessage]);
+      if (newMessage.sender_id === activeChat && newMessage.receiver_id === user?.id) {
+        markConversationAsRead(newMessage.sender_id);
+      }
     }
 
     // Update conversation cache

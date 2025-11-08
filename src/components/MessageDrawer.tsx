@@ -93,7 +93,7 @@ export function MessageDrawer({ open, onOpenChange }: { open: boolean; onOpenCha
             .select('*', { count: 'exact', head: true })
             .eq('sender_id', conv.partnerId)
             .eq('receiver_id', user.id)
-            .eq('read', false);
+            .eq('is_read', false);
 
           conv.unreadCount = count || 0;
         }

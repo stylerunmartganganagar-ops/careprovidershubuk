@@ -111,11 +111,24 @@ export default function SellerManageOrders() {
   }), [displayOrders, filterStatus]);
 
   const markDelivered = async (id: string) => {
+    const deliveredAt = new Date().toISOString();
     try {
       setDeliveringId(id);
-      await (supabase.from('orders') as any)
-        .update({ delivered_at: new Date().toISOString() })
+      const { error } = await (supabase.from('orders') as any)
+        .update({ delivered_at: deliveredAt })
         .eq('id', id);
+      if (error) throw error;
+
+      setOrders(prev =>
+        prev.map(order =>
+          order.id === id
+            ? { ...order, delivered_at: deliveredAt }
+            : order
+        )
+      );
+    } catch (err) {
+      console.error('Failed to mark order as delivered', err);
+      alert('Failed to mark order as delivered. Please try again.');
     } finally {
       setDeliveringId(null);
     }

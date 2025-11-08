@@ -3,6 +3,8 @@ import { supabase } from './supabase';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
 interface User {
+  phone_verified: string;
+  description: string;
   id: string;
   name: string;
   username: string;
@@ -142,6 +144,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       email: supabaseUser.email || '',
       avatar: supabaseUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.id}`,
       role: supabaseUser.user_metadata?.role || 'client',
+      phone_verified: '',
+      description: ''
     };
 
     console.log('Setting initial user data:', initialUserData);
@@ -186,6 +190,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             email: supabaseUser.email || '',
             avatar: (newProfile as DBProfile).avatar || initialUserData.avatar,
             role: (newProfile as DBProfile).role || initialUserData.role,
+            phone_verified: '',
+            description: ''
           };
           setUser(updatedUserData);
           console.log('Created new profile with username:', updatedUserData.username);
@@ -201,6 +207,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           email: supabaseUser.email || '',
           avatar: (profile as DBProfile).avatar || initialUserData.avatar,
           role: (profile as DBProfile).role || initialUserData.role,
+          phone_verified: '',
+          description: ''
         };
         setUser(updatedUserData);
         console.log('Updated user with existing profile data:', updatedUserData);

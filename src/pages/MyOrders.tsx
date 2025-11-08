@@ -116,13 +116,26 @@ export default function MyOrders() {
     if (!window.confirm('Once you accept delivery, the order will be marked complete. Please accept only if the order is complete. Continue?')) return;
     try {
       setAcceptingId(id);
-      await (supabase.from('orders') as any)
+      const completedAt = new Date().toISOString();
+      const { error } = await (supabase.from('orders') as any)
         .update({ buyer_accepted: true, status: 'completed', completed_at: new Date().toISOString() })
         .eq('id', id);
+      if (error) throw error;
+
+      setOrders(prev =>
+        prev.map(order =>
+          order.id === id
+            ? { ...order, buyer_accepted: true, status: 'completed', completed_at: completedAt }
+            : order
+        )
+      );
       // Prompt review after successful acceptance
       setReviewForOrderId(id);
       setReviewRating(5);
       setReviewText('');
+    } catch (err) {
+      console.error('Failed to accept delivery', err);
+      alert('Failed to accept delivery. Please try again.');
     } finally {
       setAcceptingId(null);
     }
