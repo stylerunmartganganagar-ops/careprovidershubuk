@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -58,6 +58,138 @@ import {
 import { supabase } from '../lib/supabase';
 import { Database } from '../lib/database.types';
 
+type UserRecord = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  is_verified: boolean | null;
+  created_at: string;
+  phone: string | null;
+};
+
+type ReviewRecord = {
+  id: string;
+  rating: number | null;
+  comment: string | null;
+  created_at: string;
+  order_id: string | null;
+  reviewer: { id?: string; name?: string | null; email?: string | null } | null;
+  reviewee: { id?: string; name?: string | null; email?: string | null } | null;
+};
+
+type MessageRecord = {
+  id: string;
+  content: string;
+  created_at: string;
+  sender: { id?: string; email?: string | null } | null;
+  receiver: { id?: string; email?: string | null } | null;
+};
+
+type SellerRecord = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  rating: number | null;
+  review_count: number | null;
+  created_at: string;
+  is_verified: boolean | null;
+};
+
+type PaymentRecord = {
+  id: string;
+  order_id: string;
+  amount: number;
+  currency: string | null;
+  status: string | null;
+  created_at: string;
+};
+
+type TokenPlanRecord = {
+  id: string;
+  name: string;
+  tokens: number;
+  price: number;
+  description: string | null;
+  active_purchases: number | null;
+  total_revenue: number | null;
+  is_popular: boolean | null;
+};
+
+type TokenPurchaseRecord = {
+  tokens: number;
+  amount: number;
+  status: string | null;
+};
+
+type PlatformSettingsRow = {
+  id: string;
+  fb_pixel_id: string | null;
+  gtm_id: string | null;
+  ga_measurement_id: string | null;
+};
+
+type SellerListItem = {
+  id: string | number;
+  name: string;
+  email: string;
+  status: 'active' | 'suspended' | 'pending';
+  level: string;
+  rating: number;
+  ordersCompleted: number;
+  earnings: number;
+  joinDate: string;
+  lastActive: string;
+  warnings: number;
+  banned: boolean;
+};
+
+type UnverifiedUserRecord = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  avatar: string | null;
+  is_verified: boolean | null;
+  created_at: string;
+  role: string | null;
+};
+
+type ServiceRecord = {
+  id: string;
+  title: string | null;
+  provider_id: string;
+  is_active: boolean | null;
+  created_at: string;
+};
+
+type PaymentListItem = {
+  id: string | number;
+  orderId: string;
+  seller: string;
+  buyer: string;
+  amount: number;
+  fee: number;
+  netAmount: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
+  date: string;
+  dueDate: string;
+};
+
+type SellerPlanListItem = {
+  id: string | number;
+  name: string;
+  tokens: number;
+  price: number;
+  description: string | null;
+  activePurchases: number;
+  revenue: number;
+  popular?: boolean;
+};
+
+type CountOnlyResponse = {
+  count: number | null;
+};
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -116,62 +248,208 @@ export default function AdminPanel() {
     content: string;
   }>>([]);
 
-  // Sellers management
-  const [sellers, setSellers] = useState<Array<{
-    id: string | number;
+  // Admin user management
+  const [usersList, setUsersList] = useState<Array<{
+    id: string;
     name: string;
     email: string;
-    status: 'active' | 'suspended' | 'pending';
-    level: string;
-    rating: number;
-    ordersCompleted: number;
-    earnings: number;
-    joinDate: string;
-    lastActive: string;
-    warnings: number;
-    banned: boolean;
+    role: string | null;
+    verified: boolean;
+    createdAt: string;
+    phone: string | null;
   }>>([]);
+  const [userSearch, setUserSearch] = useState('');
+
+  const [reviews, setReviews] = useState<Array<{
+    id: string;
+    rating: number;
+    comment: string;
+    createdAt: string;
+    orderId: string | null;
+    reviewer: { id: string; name: string; email: string | null };
+    reviewee: { id: string; name: string; email: string | null };
+  }>>([]);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'positive' | 'neutral' | 'negative'>('all');
+
+  const [reportsData, setReportsData] = useState<{
+    ordersByStatus: Array<{ status: string; count: number }>;
+    monthlyRevenue: Array<{ month: string; revenue: number }>;
+    recentSignups: Array<{ id: string; name: string; role: string; createdAt: string }>;
+  }>({ ordersByStatus: [], monthlyRevenue: [], recentSignups: [] });
+  const [reportsLoading, setReportsLoading] = useState(false);
+
+  const isMountedRef = useRef(true);
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, email, role, is_verified, created_at, phone')
+        .order('created_at', { ascending: false })
+        .limit(200)
+        .returns<UserRecord[]>();
+      if (error) throw error;
+      const rows = (data ?? []).map((u) => ({
+        id: u.id,
+        name: u.name ?? 'Unnamed User',
+        email: u.email ?? 'Unknown',
+        role: u.role,
+        verified: Boolean(u.is_verified),
+        createdAt: u.created_at,
+        phone: u.phone ?? null,
+      }));
+      if (isMountedRef.current) {
+        setUsersList(rows);
+      }
+    } catch (e) {
+      console.error('Error loading users', e);
+    }
+  }, []);
+
+  const loadReportsAnalytics = useCallback(async () => {
+    try {
+      setReportsLoading(true);
+
+      const [{ data: ordersData, error: ordersError }, { data: paymentsData, error: paymentsError }, { data: usersData, error: usersError }] = await Promise.all([
+        supabase.from('orders').select('status'),
+        supabase
+          .from('payments')
+          .select('amount, created_at')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('users')
+          .select('id, name, role, created_at')
+          .order('created_at', { ascending: false })
+          .limit(10)
+      ]);
+
+      if (ordersError) throw ordersError;
+      if (paymentsError) throw paymentsError;
+      if (usersError) throw usersError;
+
+      const ordersByStatus = (ordersData || []).reduce((acc: Array<{ status: string; count: number }>, row: any) => {
+        const status = row.status || 'unknown';
+        const existing = acc.find((item) => item.status === status);
+        if (existing) existing.count += 1;
+        else acc.push({ status, count: 1 });
+        return acc;
+      }, []);
+
+      const revenueBuckets = new Map<string, number>();
+      (paymentsData || []).forEach((p: any) => {
+        const date = new Date(p.created_at);
+        if (Number.isNaN(date.getTime())) return;
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const prev = revenueBuckets.get(key) || 0;
+        revenueBuckets.set(key, prev + Number(p.amount || 0));
+      });
+
+      const monthlyRevenue = Array.from(revenueBuckets.entries())
+        .sort(([a], [b]) => (a > b ? 1 : -1))
+        .map(([month, revenue]) => ({ month, revenue }));
+
+      const recentSignups = (usersData || []).map((u: any) => ({
+        id: u.id,
+        name: u.name || 'Unnamed',
+        role: u.role,
+        createdAt: u.created_at,
+      }));
+
+      if (isMountedRef.current) {
+        setReportsData({ ordersByStatus, monthlyRevenue, recentSignups });
+      }
+    } catch (e) {
+      console.error('Error loading reports analytics', e);
+      if (isMountedRef.current) {
+        setReportsData({ ordersByStatus: [], monthlyRevenue: [], recentSignups: [] });
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setReportsLoading(false);
+      }
+    }
+  }, []);
+
+  const loadReviews = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('reviews')
+        .select(`
+          id,
+          rating,
+          comment,
+          created_at,
+          order_id,
+          reviewer:users!reviews_reviewer_id_fkey(id, name, email),
+          reviewee:users!reviews_reviewee_id_fkey(id, name, email)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(200)
+        .returns<ReviewRecord[]>();
+      if (error) throw error;
+      const rows = (data ?? []).map((review) => ({
+        id: review.id,
+        rating: Number(review.rating ?? 0),
+        comment: review.comment ?? '',
+        createdAt: review.created_at,
+        orderId: review.order_id ?? null,
+        reviewer: {
+          id: review.reviewer?.id ?? 'unknown',
+          name: review.reviewer?.name ?? review.reviewer?.email ?? 'Unknown reviewer',
+          email: review.reviewer?.email ?? null,
+        },
+        reviewee: {
+          id: review.reviewee?.id ?? 'unknown',
+          name: review.reviewee?.name ?? review.reviewee?.email ?? 'Unknown user',
+          email: review.reviewee?.email ?? null,
+        },
+      }));
+      if (isMountedRef.current) {
+        setReviews(rows);
+      }
+    } catch (e) {
+      console.error('Error loading reviews', e);
+      if (isMountedRef.current) {
+        setReviews([]);
+      }
+    }
+  }, []);
+
+  // Sellers management
+  const [sellers, setSellers] = useState<SellerListItem[]>([]);
 
   // Payment management
-  const [payments, setPayments] = useState<Array<{
-    id: string | number;
-    orderId: string;
-    seller: string;
-    buyer: string;
-    amount: number;
-    fee: number;
-    netAmount: number;
-    status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
-    date: string;
-    dueDate: string;
-  }>>([]);
+  const [payments, setPayments] = useState<PaymentListItem[]>([]);
 
   // Seller plans (Token packages)
-  const [sellerPlans, setSellerPlans] = useState<Array<{
-    id: string | number;
-    name: string;
-    tokens: number;
-    price: number;
-    description: string | null;
-    activePurchases: number;
-    revenue: number;
-    popular?: boolean;
-  }>>([]);
+  const [sellerPlans, setSellerPlans] = useState<SellerPlanListItem[]>([]);
 
   useEffect(() => {
     let mounted = true;
+    isMountedRef.current = true;
 
     const loadOverview = async () => {
       try {
-        const [{ count: usersCount }, { count: providersCount }, { count: ordersCount }] = await Promise.all([
-          supabase.from('users').select('*', { count: 'exact', head: true }),
-          supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'provider'),
-          supabase.from('orders').select('*', { count: 'exact', head: true }),
-        ]);
+        const usersResult = (await (supabase as any)
+          .from('users')
+          .select('id', { count: 'exact', head: true })) as CountOnlyResponse;
+        const providersResult = (await (supabase as any)
+          .from('users')
+          .select('id', { count: 'exact', head: true })
+          .eq('role', 'provider')) as CountOnlyResponse;
+        const ordersResult = (await (supabase as any)
+          .from('orders')
+          .select('id', { count: 'exact', head: true })) as CountOnlyResponse;
+
+        const usersCount = usersResult.count ?? 0;
+        const providersCount = providersResult.count ?? 0;
+        const ordersCount = ordersResult.count ?? 0;
 
         const { data: tokenPurchases, error: tokenPurchasesError } = await supabase
           .from('token_purchases')
-          .select('tokens, amount, status');
+          .select('tokens, amount, status')
+          .returns<TokenPurchaseRecord[]>();
 
         if (tokenPurchasesError) throw tokenPurchasesError;
 
@@ -239,7 +517,8 @@ export default function AdminPanel() {
           .from('messages')
           .select(`id, content, created_at, sender:users!messages_sender_id_fkey(id,email), receiver:users!messages_receiver_id_fkey(id,email)`)
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(50)
+          .returns<MessageRecord[]>();
         if (error) throw error;
         const rows = (data || []).map((m: any) => ({
           id: m.id,
@@ -257,35 +536,53 @@ export default function AdminPanel() {
 
     const loadApprovals = async () => {
       try {
-        const [{ data: unverified }, { data: inactiveServices }] = await Promise.all([
-          supabase.from('users').select('id, name, email, avatar, is_verified, created_at, role').eq('is_verified', false),
-          supabase.from('services').select('id, title, provider_id, is_active, created_at'),
+        const [unverifiedResult, servicesResult] = await Promise.all([
+          supabase
+            .from('users')
+            .select('id, name, email, avatar, is_verified, created_at, role')
+            .eq('is_verified', false)
+            .returns<UnverifiedUserRecord[]>(),
+          supabase
+            .from('services')
+            .select('id, title, provider_id, is_active, created_at')
+            .returns<ServiceRecord[]>(),
         ]);
 
-        const unverifiedItems = (unverified || []).map(u => ({
+        if (unverifiedResult.error) throw unverifiedResult.error;
+        if (servicesResult.error) throw servicesResult.error;
+
+        const unverifiedItems = (unverifiedResult.data ?? []).map((u) => ({
           id: u.id,
           type: 'seller_profile' as const,
-          user: { name: (u as any).name, email: (u as any).email, avatar: (u as any).avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default' },
-          submittedDate: (u as any).created_at,
+          user: {
+            name: u.name ?? 'Unknown user',
+            email: u.email ?? 'unknown@providershub.uk',
+            avatar: u.avatar ?? 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
+          },
+          submittedDate: u.created_at,
           status: 'pending' as const,
-          content: 'Profile verification pending'
+          content: 'Profile verification pending',
         }));
 
-        const serviceItems = (inactiveServices || [])
-          .filter((s: any) => s.is_active === false)
-          .map((s: any) => ({
+        const serviceItems = (servicesResult.data ?? [])
+          .filter((s) => s.is_active === false)
+          .map((s) => ({
             id: s.id,
             type: 'service_posting' as const,
-            user: { name: 'Service Provider', email: s.provider_id, avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=service' },
+            user: {
+              name: 'Service Provider',
+              email: s.provider_id,
+              avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=service',
+            },
             submittedDate: s.created_at,
             status: 'pending' as const,
-            content: s.title
+            content: s.title ?? 'Service awaiting approval',
           }));
 
         const combined = [...unverifiedItems, ...serviceItems].slice(0, 10);
         if (mounted) {
           setPendingApprovals(combined);
-          setStats(prev => ({ ...prev, pendingApprovals: combined.length }));
+          setStats((prev) => ({ ...prev, pendingApprovals: combined.length }));
         }
       } catch (e) {
         console.error('Error loading approvals', e);
@@ -296,21 +593,21 @@ export default function AdminPanel() {
       try {
         const { data, error } = await supabase
           .from('users')
-          .select('id, name, email, role, rating, review_count, created_at, is_verified')
-          .eq('role', 'provider')
+          .select('id, name, email, is_verified, created_at, is_provider')
+          .eq('is_provider', true)
           .order('created_at', { ascending: false })
           .limit(50);
         if (error) throw error;
-        const rows = (data || []).map((u: any) => ({
+        const rows: SellerListItem[] = (data ?? []).map((u: any) => ({
           id: u.id,
-          name: u.name,
-          email: u.email,
+          name: u.name ?? 'Unnamed Provider',
+          email: u.email ?? 'unknown@example.com',
           status: u.is_verified ? 'active' : 'pending',
           level: 'Level 1',
-          rating: u.rating || 0,
-          ordersCompleted: u.review_count || 0,
+          rating: 0,
+          ordersCompleted: 0,
           earnings: 0,
-          joinDate: u.created_at,
+          joinDate: u.created_at ?? new Date().toISOString(),
           lastActive: '—',
           warnings: 0,
           banned: false,
@@ -327,17 +624,18 @@ export default function AdminPanel() {
           .from('payments')
           .select('id, order_id, amount, currency, status, created_at')
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(50)
+          .returns<PaymentRecord[]>();
         if (error) throw error;
-        const rows = (data || []).map((p: any) => ({
+        const rows: PaymentListItem[] = (data || []).map((p) => ({
           id: p.id,
           orderId: p.order_id,
           seller: '-',
           buyer: '-',
-          amount: p.amount,
-          fee: Math.round(p.amount * 0.1),
-          netAmount: Math.round(p.amount * 0.9),
-          status: (p.status || 'pending') as any,
+          amount: Number(p.amount ?? 0),
+          fee: Math.round(Number(p.amount ?? 0) * 0.1),
+          netAmount: Math.round(Number(p.amount ?? 0) * 0.9),
+          status: (p.status ?? 'pending') as PaymentListItem['status'],
           date: p.created_at,
           dueDate: p.created_at,
         }));
@@ -351,18 +649,19 @@ export default function AdminPanel() {
       try {
         const { data, error } = await supabase
           .from('token_plans')
-          .select('*')
-          .order('tokens', { ascending: true });
+          .select('id, name, tokens, price, description, active_purchases, total_revenue, is_popular')
+          .order('tokens', { ascending: true })
+          .returns<TokenPlanRecord[]>();
         if (error) throw error;
-        const rows = (data || []).map((pl: any) => ({
+        const rows: SellerPlanListItem[] = (data || []).map((pl) => ({
           id: pl.id,
           name: pl.name,
           tokens: pl.tokens,
           price: pl.price,
           description: pl.description,
-          activePurchases: pl.active_purchases || 0,
-          revenue: pl.total_revenue || 0,
-          popular: pl.is_popular || false,
+          activePurchases: Number(pl.active_purchases ?? 0),
+          revenue: Number(pl.total_revenue ?? 0),
+          popular: Boolean(pl.is_popular),
         }));
         if (mounted) setSellerPlans(rows);
       } catch (e) {
@@ -372,6 +671,9 @@ export default function AdminPanel() {
 
     const loadAll = async () => {
       await Promise.all([
+        loadUsers(),
+        loadReviews(),
+        loadReportsAnalytics(),
         loadOverview(),
         loadMessages(),
         loadApprovals(),
@@ -388,20 +690,23 @@ export default function AdminPanel() {
     // Basic realtime to refresh lists on changes
     const channel = supabase
       .channel('admin_panel_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => { loadOverview(); loadSellers(); loadApprovals(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => { loadOverview(); loadSellers(); loadApprovals(); loadUsers(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => { loadMessages(); loadOverview(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadPayments(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_purchases' }, () => { loadOverview(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { loadOverview(); loadCreatedOrders(); loadAcceptedOrders(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => { loadApprovals(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => { loadReviews(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadReportsAnalytics(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_plans' }, () => { loadPlans(); })
       .subscribe();
 
     return () => {
       mounted = false;
+      isMountedRef.current = false;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [loadUsers, loadReviews, loadReportsAnalytics]);
 
   const sidebarItems = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -457,6 +762,122 @@ export default function AdminPanel() {
     </div>
   );
 
+  const renderReviews = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">Review Management</h2>
+          <p className="text-sm text-gray-500">Monitor recent feedback left on the marketplace.</p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <Select value={reviewFilter} onValueChange={(value: typeof reviewFilter) => setReviewFilter(value)}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue placeholder="Filter rating" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All ratings</SelectItem>
+              <SelectItem value="positive">Positive (4-5★)</SelectItem>
+              <SelectItem value="neutral">Neutral (3★)</SelectItem>
+              <SelectItem value="negative">Negative (1-2★)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" onClick={() => loadReviews()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-sm text-gray-500">Total reviews</div>
+            <div className="text-2xl font-semibold">{reviews.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-sm text-gray-500">Filtered set</div>
+            <div className="text-2xl font-semibold">{filteredReviews.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-sm text-gray-500">Average rating</div>
+            <div className="text-2xl font-semibold">{filteredReviews.length ? averageReviewScore.toFixed(1) : '0.0'}★</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Reviewer</TableHead>
+                <TableHead>Reviewee</TableHead>
+                <TableHead className="text-center">Rating</TableHead>
+                <TableHead>Comment</TableHead>
+                <TableHead>Order</TableHead>
+                <TableHead>Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredReviews.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-gray-500">
+                    No reviews match this filter.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredReviews.map((review) => (
+                  <TableRow key={review.id}>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{review.reviewer.name}</span>
+                        {review.reviewer.email && (
+                          <span className="text-xs text-gray-500">{review.reviewer.email}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{review.reviewee.name}</span>
+                        {review.reviewee.email && (
+                          <span className="text-xs text-gray-500">{review.reviewee.email}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center space-x-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            className={`h-3 w-3 ${star <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                          />
+                        ))}
+                        <span className="text-sm font-medium">{review.rating.toFixed(1)}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-xl">
+                      <p className="text-sm text-gray-700 line-clamp-3">{review.comment || 'No comment provided.'}</p>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {review.orderId || '—'}
+                    </TableCell>
+                    <TableCell className="text-sm text-gray-500">
+                      {new Date(review.createdAt).toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderSettings = () => {
     const [fb, setFb] = useState('');
     const [gtm, setGtm] = useState('');
@@ -466,8 +887,13 @@ export default function AdminPanel() {
     useEffect(() => {
       (async () => {
         try {
-          const { data } = await supabase.from('platform_settings').select('*').order('updated_at', { ascending: false }).limit(1);
-          const row = (data && data[0]) || null;
+          const { data } = await supabase
+            .from('platform_settings')
+            .select('id, fb_pixel_id, gtm_id, ga_measurement_id')
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .returns<PlatformSettingsRow[]>();
+          const row = data?.[0] ?? null;
           if (row) {
             setRowId(row.id);
             setFb(row.fb_pixel_id || '');
@@ -479,9 +905,17 @@ export default function AdminPanel() {
     }, []);
 
     const save = async () => {
-      const payload: any = { fb_pixel_id: fb || null, gtm_id: gtm || null, ga_measurement_id: ga || null };
-      if (rowId) payload.id = rowId;
-      const { error, data } = await (supabase.from('platform_settings') as any).upsert(payload).select().single();
+      const payload: Database['public']['Tables']['platform_settings']['Insert'] = {
+        fb_pixel_id: fb || null,
+        gtm_id: gtm || null,
+        ga_measurement_id: ga || null,
+        id: rowId || undefined,
+      };
+      const { error, data } = await supabase
+        .from('platform_settings')
+        .upsert(payload)
+        .select()
+        .single<PlatformSettingsRow>();
       if (!error && data) setRowId(data.id);
     };
 
@@ -703,6 +1137,99 @@ export default function AdminPanel() {
     </div>
   );
 
+  const filteredUsers = usersList.filter((user) => {
+    if (!userSearch.trim()) return true;
+    const query = userSearch.toLowerCase();
+    return (
+      user.name.toLowerCase().includes(query) ||
+      (user.email && user.email.toLowerCase().includes(query)) ||
+      (user.phone && user.phone.toLowerCase().includes(query))
+    );
+  });
+
+  const filteredReviews = reviews.filter((review) => {
+    if (reviewFilter === 'positive') return review.rating >= 4;
+    if (reviewFilter === 'neutral') return review.rating === 3;
+    if (reviewFilter === 'negative') return review.rating <= 2;
+    return true;
+  });
+
+  const averageReviewScore = filteredReviews.reduce((sum, review) => sum + review.rating, 0) /
+    (filteredReviews.length || 1);
+
+  const renderUsers = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <h2 className="text-2xl font-bold">User Management</h2>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <div className="relative w-full sm:w-64">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Input
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Search by name, email or phone"
+              className="pl-9"
+            />
+          </div>
+          <Button variant="outline" onClick={() => loadUsers()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Joined</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredUsers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-gray-500">
+                    No users found. Try adjusting your search.
+                  </TableCell>
+                </TableRow>
+              )}
+              {filteredUsers.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell>
+                    <div className="flex items-center space-x-3">
+                      <Avatar className="h-8 w-8">
+                        <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.id)}`} alt={user.name} />
+                      </Avatar>
+                      <div>
+                        <div className="font-medium">{user.name}</div>
+                        <div className="text-xs text-gray-500">{user.id}</div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell className="capitalize">{user.role}</TableCell>
+                  <TableCell>
+                    <Badge variant={user.verified ? 'default' : 'secondary'}>
+                      {user.verified ? 'verified' : 'pending'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{user.phone || '—'}</TableCell>
+                  <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderMessages = () => (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -720,69 +1247,178 @@ export default function AdminPanel() {
       </div>
 
       <div className="space-y-4">
-        {messages.map((message) => (
-          <Card key={message.id}>
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <span className="font-semibold">{message.sender}</span>
-                    <span className="text-gray-500">→</span>
-                    <span className="font-semibold">{message.recipient}</span>
-                    {message.flagged && (
-                      <Badge variant="destructive" className="text-xs">
-                        <Flag className="h-3 w-3 mr-1" />
-                        Flagged
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-gray-700 mb-2">{message.content}</p>
-                  {message.flagReason && (
-                    <Alert className="mb-4">
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription>
-                        Flag reason: {message.flagReason}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  <div className="text-sm text-gray-500">
-                    {message.timestamp}
-                  </div>
-                </div>
-                <Badge variant={
-                  message.status === 'approved' ? 'default' :
-                  message.status === 'pending' ? 'secondary' : 'destructive'
-                }>
-                  {message.status}
-                </Badge>
-              </div>
-
-              <div className="flex space-x-2">
-                <Button size="sm" variant="outline">
-                  <Eye className="h-4 w-4 mr-1" />
-                  View Conversation
-                </Button>
-                {message.status === 'pending' && (
-                  <>
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="destructive">
-                      <XCircle className="h-4 w-4 mr-1" />
-                      Reject
-                    </Button>
-                  </>
-                )}
-                <Button size="sm" variant="outline">
-                  <Ban className="h-4 w-4 mr-1" />
-                  Ban User
-                </Button>
-              </div>
+        {messages.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-center text-sm text-gray-500">
+              No conversations found. Messages will appear here as users start chatting.
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          messages.map((message) => (
+            <Card key={message.id}>
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className="font-semibold">{message.sender}</span>
+                      <span className="text-gray-500">→</span>
+                      <span className="font-semibold">{message.recipient}</span>
+                      {message.flagged && (
+                        <Badge variant="destructive" className="text-xs">
+                          <Flag className="h-3 w-3 mr-1" />
+                          Flagged
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-gray-700 mb-2">{message.content}</p>
+                    {message.flagReason && (
+                      <Alert className="mb-4">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription>
+                          Flag reason: {message.flagReason}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    <div className="text-sm text-gray-500">
+                      {new Date(message.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                  <Badge variant={
+                    message.status === 'approved' ? 'default' :
+                    message.status === 'pending' ? 'secondary' : 'destructive'
+                  }>
+                    {message.status}
+                  </Badge>
+                </div>
+
+                <div className="flex space-x-2">
+                  <Button size="sm" variant="outline">
+                    <Eye className="h-4 w-4 mr-1" />
+                    View Conversation
+                  </Button>
+                  {message.status === 'pending' && (
+                    <>
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700">
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="destructive">
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Reject
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="outline">
+                    <Ban className="h-4 w-4 mr-1" />
+                    Ban User
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
+    </div>
+  );
+
+  const renderReports = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">Reports &amp; Analytics</h2>
+          <p className="text-sm text-gray-500">Key activity across orders, revenue, and new signups.</p>
+        </div>
+        <Button variant="outline" onClick={() => loadReportsAnalytics()} disabled={reportsLoading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${reportsLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-sm text-gray-500 mb-2">Orders by status</div>
+            <div className="space-y-3">
+              {reportsData.ordersByStatus.length === 0 ? (
+                <p className="text-sm text-gray-500">No order data yet.</p>
+              ) : (
+                reportsData.ordersByStatus.map((row) => (
+                  <div key={row.status} className="flex items-center justify-between">
+                    <span className="capitalize">{row.status}</span>
+                    <Badge variant="outline">{row.count}</Badge>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-sm text-gray-500 mb-2">Monthly revenue (£)</div>
+            {reportsData.monthlyRevenue.length === 0 ? (
+              <p className="text-sm text-gray-500">No payments recorded yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {reportsData.monthlyRevenue.slice(-6).map((row) => (
+                  <div key={row.month} className="flex items-center justify-between">
+                    <span>{row.month}</span>
+                    <span className="font-medium">£{row.revenue.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-sm text-gray-500 mb-2">Recent signups</div>
+            {reportsData.recentSignups.length === 0 ? (
+              <p className="text-sm text-gray-500">No recent users.</p>
+            ) : (
+              <div className="space-y-3">
+                {reportsData.recentSignups.map((user) => (
+                  <div key={user.id} className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{user.name}</div>
+                      <div className="text-xs text-gray-500 capitalize">{user.role}</div>
+                    </div>
+                    <div className="text-xs text-gray-500">{new Date(user.createdAt).toLocaleDateString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="p-6">
+          {reportsLoading ? (
+            <div className="flex items-center justify-center h-32 text-sm text-gray-500">Loading...</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Orders overview</h3>
+                <ul className="space-y-2 text-sm text-gray-600">
+                  {reportsData.ordersByStatus.map((item) => (
+                    <li key={item.status}>{item.status}: {item.count}</li>
+                  ))}
+                  {reportsData.ordersByStatus.length === 0 && <li>No data available.</li>}
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Top insights</h3>
+                <ul className="space-y-2 text-sm text-gray-600">
+                  <li>Revenue tracked across {reportsData.monthlyRevenue.length} month(s).</li>
+                  <li>{reportsData.recentSignups.length} new users in the latest fetch.</li>
+                </ul>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 
@@ -1208,6 +1844,7 @@ export default function AdminPanel() {
         <div className="flex-1 overflow-auto">
           <div className="p-8">
             {activeTab === 'overview' && renderOverview()}
+            {activeTab === 'users' && renderUsers()}
             {activeTab === 'messages' && renderMessages()}
             {activeTab === 'approvals' && renderApprovals()}
             {activeTab === 'kyc' && renderKYC()}
@@ -1216,6 +1853,7 @@ export default function AdminPanel() {
             {activeTab === 'orders_created' && renderCreatedOrders()}
             {activeTab === 'orders_accepted' && renderAcceptedOrders()}
             {activeTab === 'plans' && renderPlans()}
+            {activeTab === 'reviews' && renderReviews()}
           </div>
         </div>
       </div>
