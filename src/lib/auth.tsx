@@ -9,6 +9,18 @@ interface User {
   email: string;
   avatar: string;
   role: 'client' | 'provider' | 'admin';
+  phone?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  company?: string | null;
+  job_title?: string | null;
+  website?: string | null;
+  linkedin?: string | null;
+  experience?: string | null;
+  specializations?: string[] | null;
+  is_verified?: boolean;
+  rating?: number;
+  review_count?: number;
 }
 
 interface AuthContextType {

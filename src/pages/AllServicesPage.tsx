@@ -66,53 +66,97 @@ export default function AllServicesPage() {
     const enrich = async () => {
       try {
         if (!services || services.length === 0) { setEnrichedServices(null); return; }
-        const providerIds = Array.from(new Set(services
+
+        let servicesWithIds = services;
+
+        // Get provider_ids for services that don't have them
+        const servicesWithoutProviderId = services.filter((s: any) => !s.provider?.id && !s.provider_id);
+        if (servicesWithoutProviderId.length > 0) {
+          const serviceIds = servicesWithoutProviderId.map((s: any) => s.id);
+          const { data: serviceData, error: serviceError } = await supabase
+            .from('services')
+            .select('id, provider_id')
+            .in('id', serviceIds);
+
+          if (!serviceError && serviceData) {
+            const serviceMap = Object.fromEntries(serviceData.map((s: any) => [s.id, s.provider_id]));
+            servicesWithIds = services.map((s: any) => ({
+              ...s,
+              provider_id: s.provider_id || s.provider?.id || serviceMap[s.id]
+            }));
+          }
+        }
+
+        const providerIds = Array.from(new Set(servicesWithIds
           .map((s: any) => s.provider?.id || s.provider_id)
           .filter(Boolean)));
+
         if (providerIds.length === 0) { setEnrichedServices(services); return; }
-        const { data: revs, error } = await supabase
+
+        // Get all reviews for these providers
+        const { data: allReviews, error } = await supabase
           .from('reviews')
           .select('reviewee_id, rating')
           .in('reviewee_id', providerIds);
+
         if (error) throw error;
-        const map: Record<string, { sum: number; count: number }> = {};
-        (revs || []).forEach((r: any) => {
-          const id = r.reviewee_id; const rating = Number(r.rating) || 0;
-          if (!map[id]) map[id] = { sum: 0, count: 0 };
-          map[id].sum += rating; map[id].count += 1;
+
+        // Also get the current user ratings from the users table as backup
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id, rating, review_count')
+          .in('id', providerIds);
+
+        // Build rating map from reviews
+        const ratingMap: Record<string, { sum: number; count: number }> = {};
+        (allReviews || []).forEach((r: any) => {
+          const id = r.reviewee_id;
+          const rating = Number(r.rating) || 0;
+          if (!ratingMap[id]) ratingMap[id] = { sum: 0, count: 0 };
+          ratingMap[id].sum += rating;
+          ratingMap[id].count += 1;
         });
-        const merged = services.map((s: any) => {
-          const pid = s.provider?.id || s.provider_id; const agg = pid ? map[pid] : undefined;
-          if (agg) {
-            const avg = agg.count ? agg.sum / agg.count : 0;
-            return {
-              ...s,
-              provider: {
-                ...(s.provider || {}),
-                id: pid,
-                rating: avg,
-                review_count: agg.count,
-              }
-            };
-          }
-          // Ensure provider exists so UI can read provider.rating safely
-          if (!s.provider && pid) {
-            return {
-              ...s,
-              provider: {
-                id: pid,
-                name: s.provider_name || 'Seller',
-                avatar: s.provider_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${pid}`,
-                rating: 0,
-                review_count: 0,
-                is_verified: false,
-              }
-            };
-          }
-          return s;
+
+        // Build user data map
+        const userMap: Record<string, { rating: number; review_count: number }> = {};
+        (userData || []).forEach((u: any) => {
+          userMap[u.id] = {
+            rating: Number(u.rating) || 0,
+            review_count: Number(u.review_count) || 0
+          };
         });
+
+        const merged = servicesWithIds.map((s: any) => {
+          const pid = s.provider?.id || s.provider_id;
+          const reviewAgg = pid ? ratingMap[pid] : undefined;
+          const userAgg = pid ? userMap[pid] : undefined;
+
+          // Prefer calculated rating from reviews, fallback to user table
+          let finalRating = 0;
+          let finalReviewCount = 0;
+
+          if (reviewAgg && reviewAgg.count > 0) {
+            finalRating = reviewAgg.sum / reviewAgg.count;
+            finalReviewCount = reviewAgg.count;
+          } else if (userAgg) {
+            finalRating = userAgg.rating;
+            finalReviewCount = userAgg.review_count;
+          }
+
+          return {
+            ...s,
+            provider: {
+              ...(s.provider || {}),
+              id: pid,
+              rating: parseFloat(finalRating.toFixed(1)),
+              review_count: finalReviewCount,
+            }
+          };
+        });
+
         setEnrichedServices(merged);
-      } catch {
+      } catch (err) {
+        console.error('Error enriching services:', err);
         setEnrichedServices(services || null);
       }
     };

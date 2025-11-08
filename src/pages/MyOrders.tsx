@@ -43,12 +43,20 @@ export default function MyOrders() {
     let mounted = true;
     const load = async () => {
       if (!user?.id) return;
+      console.log('=== MYORDERS useEffect triggered ===');
+      console.log('MyOrders user object:', user);
+      console.log('MyOrders user?.id:', user?.id);
+      console.log('MyOrders user?.email:', user?.email);
+      
       setLoading(true);
       const { data, error } = await supabase
         .from('orders')
         .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, completed_at, delivered_at, buyer_accepted')
         .eq('buyer_id', user.id)
         .order('created_at', { ascending: false });
+      
+      console.log('MyOrders: Orders query result:', { data: data, error: error, length: data?.length });
+      
       if (!error && mounted) setOrders(data || []);
       // load existing reviews for these orders by this buyer for late-review visibility
       const orderIds = (data || []).map(o => o.id);
@@ -59,7 +67,7 @@ export default function MyOrders() {
           .in('order_id', orderIds)
           .eq('reviewer_id', user.id);
         const map: Record<string, boolean> = {};
-        (revs || []).forEach(r => { map[(r as any).order_id] = true; });
+        ((revs as any[]) || []).forEach(r => { map[r.order_id] = true; });
         if (mounted) setReviewedOrders(map);
       } else {
         if (mounted) setReviewedOrders({});
@@ -131,27 +139,17 @@ export default function MyOrders() {
         rating: reviewRating,
         comment: reviewText || null,
       });
-      try {
-        const { data: agg } = await supabase
-          .from('reviews')
-          .select('rating')
-          .eq('reviewee_id', providerId);
-        const ratings = (agg || []).map((r: any) => Number(r.rating) || 0);
-        const count = ratings.length;
-        const avg = count ? ratings.reduce((a, b) => a + b, 0) / count : 0;
-        await (supabase.from('users') as any)
-          .update({ rating: avg, review_count: count })
-          .eq('id', providerId);
-      } catch {}
-      try {
-        await (supabase.from('notifications') as any).insert({
-          user_id: providerId,
-          title: 'New review received',
-          description: `You received a ${reviewRating}-star review`,
-          type: 'review',
-          read: false
-        });
-      } catch {}
+
+      // Update seller's rating and review count using the centralized function
+      const { updateSellerRating } = await import('../hooks/useProjects');
+      await updateSellerRating(providerId);
+
+      // Create notification for the seller
+      const { notifyReviewSubmitted } = await import('../lib/notifications');
+      const { data: userData } = await supabase.auth.getUser();
+      const reviewerName = userData.user?.user_metadata?.name || userData.user?.email || 'A buyer';
+      await notifyReviewSubmitted(providerId, reviewerName, reviewRating);
+
       setReviewForOrderId(null);
       setReviewText('');
       setReviewedOrders(prev => ({ ...prev, [orderId]: true }));

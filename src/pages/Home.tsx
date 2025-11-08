@@ -3,13 +3,18 @@ import Dashboard from './Dashboard';
 import SellerDashboard from './SellerDashboard';
 
 export default function Home() {
+  console.log('🏠 HOME COMPONENT RENDERED');
   const { user } = useAuth();
-  const role = user?.role;
+  console.log('🏠 Home user object:', user);
+  console.log('🏠 Home user?.role:', user?.role);
+  console.log('🏠 Home user?.id:', user?.id);
 
-  if (role === 'provider') {
+  if (user?.role === 'provider') {
+    console.log('🏠 USER IS PROVIDER - RENDERING SellerDashboard');
     return <SellerDashboard />;
   }
 
-  // Default to buyer dashboard
+  console.log('🏠 USER IS CLIENT (or no role) - RENDERING Dashboard');
+  console.log('🏠 About to render Dashboard component...');
   return <Dashboard />;
 }

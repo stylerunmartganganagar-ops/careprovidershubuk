@@ -50,7 +50,20 @@ export default function SellerUpdateProfile() {
     portfolioItems: 0,
     completedOrders: 0,
     rating: 0,
-    reviews: 0
+    reviews: 0,
+    memberLevel: 'Bronze',
+    accountAge: 0,
+  });
+
+  const [realStats, setRealStats] = useState({
+    completedOrders: 0,
+    activeOrders: 0,
+    totalEarnings: 0,
+    averageRating: 0,
+    totalReviews: 0,
+    portfolioItems: 0,
+    responseTime: 0,
+    memberLevel: 'Bronze',
   });
 
   const [loading, setLoading] = useState(true);
@@ -64,6 +77,7 @@ export default function SellerUpdateProfile() {
       if (!user?.id) return;
 
       try {
+        // Load basic profile data
         const { data, error } = await supabase
           .from('users')
           .select('*')
@@ -73,26 +87,34 @@ export default function SellerUpdateProfile() {
         if (error) {
           console.error('Error loading profile:', error);
         } else if (data) {
+          const userData = data as UsersRow;
+          const accountAge = Math.floor((Date.now() - new Date(userData.created_at).getTime()) / (1000 * 60 * 60 * 24 * 30)); // months
+
           setProfile({
-            name: data.name || '',
-            title: data.job_title || '',
-            bio: data.bio || '',
-            location: data.location || '',
-            phone: '', // Not stored in users table yet
+            name: userData.name || '',
+            title: userData.job_title || '',
+            bio: userData.bio || '',
+            location: userData.location || '',
+            phone: userData.phone || '',
             email: user.email || '',
-            website: data.website || '',
+            website: userData.website || '',
             languages: [], // Not stored yet
-            experience: data.experience || '',
+            experience: userData.experience || '',
             hourlyRate: '', // Not stored yet
-            profileImage: data.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`,
-            skills: data.specializations || [],
+            profileImage: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`,
+            skills: userData.specializations || [],
             certifications: [], // Not stored yet
-            portfolioItems: 0, // Would need to count portfolios
-            completedOrders: data.review_count || 0,
-            rating: data.rating || 0,
-            reviews: data.review_count || 0
+            portfolioItems: 0, // Will be loaded below
+            completedOrders: 0, // Will be loaded below
+            rating: userData.rating || 0,
+            reviews: userData.review_count || 0,
+            memberLevel: 'Bronze', // Will be calculated below
+            accountAge,
           });
         }
+
+        // Load real stats
+        await loadRealStats();
       } catch (error) {
         console.error('Error loading profile data:', error);
       } finally {
@@ -100,8 +122,134 @@ export default function SellerUpdateProfile() {
       }
     };
 
+    const loadRealStats = async () => {
+      if (!user?.id) return;
+
+      try {
+        // Get completed orders count
+        const { count: completedCount } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        // Get active orders count
+        const { count: activeCount } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .in('status', ['pending', 'in_progress', 'revision']);
+
+        // Get total earnings
+        const { data: earnings } = await supabase
+          .from('orders')
+          .select('price')
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        const totalEarnings = (earnings || []).reduce((sum, order) => sum + parseFloat(order.price?.toString() || '0'), 0);
+
+        // Get reviews data
+        const { data: reviews } = await supabase
+          .from('reviews')
+          .select('rating')
+          .eq('reviewee_id', user.id);
+
+        const totalReviews = reviews?.length || 0;
+        const averageRating = totalReviews > 0
+          ? reviews.reduce((sum, review) => sum + (review.rating || 0), 0) / totalReviews
+          : 0;
+
+        // Get portfolio items count
+        const { count: portfolioCount } = await supabase
+          .from('portfolios')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id);
+
+        // Calculate member level
+        const memberLevel = calculateMemberLevel({
+          completedOrders: completedCount || 0,
+          activeOrders: activeCount || 0,
+          totalEarnings,
+          averageRating,
+          totalReviews,
+          accountAge: profile.accountAge,
+          isVerified: profile.email ? true : false,
+        });
+
+        setRealStats({
+          completedOrders: completedCount || 0,
+          activeOrders: activeCount || 0,
+          totalEarnings,
+          averageRating: parseFloat(averageRating.toFixed(1)),
+          totalReviews,
+          portfolioItems: portfolioCount || 0,
+          responseTime: 2, // Default response time
+          memberLevel,
+        });
+
+        // Update profile with real stats
+        setProfile(prev => ({
+          ...prev,
+          completedOrders: completedCount || 0,
+          reviews: totalReviews,
+          rating: parseFloat(averageRating.toFixed(1)),
+          portfolioItems: portfolioCount || 0,
+          memberLevel,
+        }));
+      } catch (error) {
+        console.error('Error loading real stats:', error);
+      }
+    };
+
     loadProfileData();
   }, [user]);
+
+  // Calculate member level for sellers based on various factors
+  const calculateMemberLevel = ({
+    completedOrders,
+    activeOrders,
+    totalEarnings,
+    averageRating,
+    totalReviews,
+    accountAge,
+    isVerified,
+  }: {
+    completedOrders: number;
+    activeOrders: number;
+    totalEarnings: number;
+    averageRating: number;
+    totalReviews: number;
+    accountAge: number;
+    isVerified: boolean;
+  }): string => {
+    let score = 0;
+
+    // Base points for verification
+    if (isVerified) score += 20;
+
+    // Points for completed orders (up to 100 points)
+    score += Math.min(completedOrders * 5, 100);
+
+    // Points for active orders (up to 50 points)
+    score += Math.min(activeOrders * 3, 50);
+
+    // Points for total earnings (up to 100 points)
+    score += Math.min(totalEarnings / 10, 100);
+
+    // Points for reviews and rating (up to 50 points each)
+    score += Math.min(totalReviews * 2, 50);
+    score += averageRating * 10; // rating out of 5, max 50 points
+
+    // Points for account age (up to 30 points)
+    score += Math.min(accountAge * 1, 30);
+
+    if (score >= 300) return 'Diamond';
+    if (score >= 250) return 'Platinum';
+    if (score >= 200) return 'Gold';
+    if (score >= 150) return 'Silver';
+    return 'Bronze';
+  };
 
   const experienceLevels = [
     { value: '1-2', label: '1-2 years' },
@@ -152,17 +300,19 @@ export default function SellerUpdateProfile() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
+      const updatePayload = {
+        name: profile.name,
+        job_title: profile.title,
+        bio: profile.bio,
+        location: profile.location,
+        website: profile.website,
+        experience: profile.experience,
+        specializations: profile.skills,
+      };
+
       const { error } = await supabase
         .from('users')
-        .update({
-          name: profile.name,
-          job_title: profile.title,
-          bio: profile.bio,
-          location: profile.location,
-          website: profile.website,
-          experience: profile.experience,
-          specializations: profile.skills,
-        })
+        .update(updatePayload)
         .eq('id', user?.id);
 
       if (error) {
@@ -488,22 +638,34 @@ export default function SellerUpdateProfile() {
               <CardContent className="space-y-4">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Total Reviews</span>
-                  <span className="font-semibold">{profile.reviews}</span>
+                  <span className="font-semibold">{realStats.totalReviews}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Average Rating</span>
                   <div className="flex items-center">
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-                    <span className="font-semibold">{profile.rating}</span>
+                    <span className="font-semibold">{realStats.averageRating.toFixed(1)}</span>
                   </div>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Completed Orders</span>
-                  <span className="font-semibold">{profile.completedOrders}</span>
+                  <span className="font-semibold">{realStats.completedOrders}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Active Orders</span>
+                  <span className="font-semibold">{realStats.activeOrders}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Portfolio Items</span>
-                  <span className="font-semibold">{profile.portfolioItems}</span>
+                  <span className="font-semibold">{realStats.portfolioItems}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Total Earnings</span>
+                  <span className="font-semibold">£{realStats.totalEarnings.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Member Level</span>
+                  <Badge variant="secondary">{realStats.memberLevel}</Badge>
                 </div>
               </CardContent>
             </Card>

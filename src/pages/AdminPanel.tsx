@@ -404,6 +404,7 @@ export default function AdminPanel() {
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'messages', label: 'Message Moderation', icon: MessageSquare },
     { id: 'approvals', label: 'Content Approvals', icon: FileCheck },
+    { id: 'kyc', label: 'KYC Verification', icon: Shield },
     { id: 'sellers', label: 'Seller Management', icon: Shield },
     { id: 'payments', label: 'Payment Management', icon: DollarSign },
     { id: 'orders_created', label: 'Created Orders', icon: Package },
@@ -1155,6 +1156,32 @@ export default function AdminPanel() {
     </div>
   );
 
+  const renderKYC = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">KYC Document Verification</h2>
+        <Button variant="outline">
+          <Download className="h-4 w-4 mr-2" />
+          Export Report
+        </Button>
+      </div>
+
+      {/* Placeholder KYC content - will be implemented with full functionality */}
+      <Card>
+        <CardContent className="p-8 text-center">
+          <Shield className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium mb-2">KYC Verification System</h3>
+          <p className="text-gray-600 mb-4">
+            Review and approve user identity verification submissions.
+          </p>
+          <p className="text-sm text-gray-500">
+            Full KYC management interface will be implemented here.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader />
@@ -1164,14 +1191,10 @@ export default function AdminPanel() {
 
         <div className="flex-1 overflow-auto">
           <div className="p-8">
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold">Healthcare Nexus Admin Panel</h1>
-              <p className="text-gray-600 mt-2">Complete platform control and moderation</p>
-            </div>
-
             {activeTab === 'overview' && renderOverview()}
             {activeTab === 'messages' && renderMessages()}
             {activeTab === 'approvals' && renderApprovals()}
+            {activeTab === 'kyc' && renderKYC()}
             {activeTab === 'sellers' && renderSellers()}
             {activeTab === 'payments' && renderPayments()}
             {activeTab === 'orders_created' && renderCreatedOrders()}

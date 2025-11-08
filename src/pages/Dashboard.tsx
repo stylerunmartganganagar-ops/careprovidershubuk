@@ -44,6 +44,7 @@ import { Link } from 'react-router-dom';
 import { useBuyerProjects } from '../hooks/useProjects';
 import { useServices } from '../hooks/useProjects';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 // ServiceCard component - enhanced version from SearchResults
 const ServiceCard = ({ service }: { service: any }) => {
@@ -155,17 +156,146 @@ const ServiceCard = ({ service }: { service: any }) => {
 };
 
 export default function DashboardPage() {
+  console.log('🔥 DASHBOARD COMPONENT MOUNTED');
   const { user } = useAuth();
+  console.log('👤 Dashboard user object:', user);
+  console.log('🆔 Dashboard user ID:', user?.id);
+
   const navigate = useNavigate();
   const { projects, loading: projectsLoading } = useBuyerProjects(user?.id);
   const { services, loading: servicesLoading } = useServices();
 
-  // Empty arrays - ready for database queries
-  const stats = {
+  // Fetch real stats for the user
+  const [stats, setStats] = useState({
     orders: { active: 0, completed: 0, totalSpent: 0, saved: 0 },
-    activity: { searches: 0, messages: 0, reviews: 0, savedServices: 0 },
-    profile: { completion: 0, level: 'New', memberSince: '2024' }
-  };
+    profile: { level: 'Bronze', memberSince: 'Recently' },
+    activity: { messages: 0, savedServices: 0 }
+  });
+
+  console.log('📊 Initial stats state:', stats);
+
+  // Log when user changes
+  useEffect(() => {
+    console.log('🔄 USER OBJECT CHANGED:', user);
+    console.log('🔄 New user ID:', user?.id);
+  }, [user]);
+
+  useEffect(() => {
+    console.log('⚡ DASHBOARD useEffect TRIGGERED');
+    console.log('⚡ Current user ID in useEffect:', user?.id);
+
+    const fetchStats = async () => {
+      console.log('🔍 STARTING fetchStats function');
+
+      if (!user?.id) {
+        console.log('❌ NO USER ID - SKIPPING DATA FETCH');
+        return;
+      }
+
+      console.log('✅ USER ID FOUND:', user.id);
+      console.log('🔄 FETCHING DASHBOARD STATS FOR USER:', user.id);
+
+      try {
+        console.log('📊 Fetching active orders count...');
+        // Get active orders count
+        const { count: activeOrders, error: activeError } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('buyer_id', user.id)
+          .in('status', ['pending', 'in_progress']);
+
+        console.log('📊 Active orders result:', { count: activeOrders, error: activeError });
+
+        console.log('💰 Fetching completed orders and total spent...');
+        // Get completed orders and total spent
+        const { data: completedOrdersData, error: completedError } = await supabase
+          .from('orders')
+          .select('price')
+          .eq('buyer_id', user.id)
+          .eq('status', 'completed');
+
+        console.log('💰 Completed orders query result:', {
+          data: completedOrdersData,
+          error: completedError,
+          dataLength: completedOrdersData?.length,
+          firstItem: completedOrdersData?.[0]
+        });
+
+        const totalSpent = (completedOrdersData || []).reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
+
+        console.log('💰 CALCULATED totalSpent:', totalSpent);
+        console.log('💰 Individual order prices:', (completedOrdersData || []).map((o: any) => o.price));
+
+        const completedCount = completedOrdersData?.length || 0;
+        console.log('📊 Completed orders count:', completedCount);
+
+        // Get messages count (unique unread conversations)
+        console.log('💬 Fetching unique unread conversations count...');
+        const { data: uniqueSenders, error: messagesError } = await supabase
+          .from('messages')
+          .select('sender_id')
+          .eq('receiver_id', user.id)
+          .eq('is_read', false);
+
+        const uniqueSenderIds = [...new Set((uniqueSenders || []).map((m: any) => m.sender_id))];
+        const messagesCount = uniqueSenderIds.length;
+
+        console.log('💬 Unique unread conversations count:', messagesCount);
+        console.log('💬 Unique sender IDs:', uniqueSenderIds);
+
+        // Get saved services count
+        console.log('⭐ Fetching saved services count...');
+        const { count: savedServicesCount } = await supabase
+          .from('favorites')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+
+        console.log('⭐ Saved services count:', savedServicesCount);
+
+        // Calculate member since
+        const memberSince = (user as any).created_at ?
+          new Date((user as any).created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) :
+          'Recently';
+
+        console.log('📅 Member since:', memberSince);
+
+        const newStats = {
+          orders: {
+            active: activeOrders || 0,
+            completed: completedCount,
+            totalSpent,
+            saved: Math.floor(totalSpent * 0.1) // Estimate 10% savings
+          },
+          profile: {
+            level: totalSpent > 1000 ? 'Gold' : totalSpent > 500 ? 'Silver' : 'Bronze',
+            memberSince
+          },
+          activity: {
+            messages: messagesCount || 0,
+            savedServices: savedServicesCount || 0
+          }
+        };
+
+        console.log('📈 SETTING NEW STATS:', newStats);
+
+        setStats(newStats);
+
+        console.log('✅ STATS UPDATED SUCCESSFULLY');
+
+      } catch (error) {
+        console.error('❌ ERROR FETCHING DASHBOARD STATS:', error);
+      }
+    };
+
+    console.log('🚀 CALLING fetchStats...');
+    fetchStats();
+  }, [user?.id]);
+
+  // Log when stats change
+  useEffect(() => {
+    console.log('🔄 STATS STATE CHANGED:', stats);
+    console.log('🔄 Current totalSpent in state:', stats.orders.totalSpent);
+  }, [stats]);
 
   const recentActivity = [];
   const quickActions = [
@@ -209,6 +339,8 @@ export default function DashboardPage() {
   const hasCuratedSearchBased = curatedBasedOnSearches.length > 0;
   const basedOnSearchesServices = hasCuratedSearchBased ? curatedBasedOnSearches : services.slice(0, 6);
 
+  console.log('🎨 RENDERING DASHBOARD UI with totalSpent:', stats.orders.totalSpent);
+
   return (
     <DashboardLayout>
       <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
@@ -227,6 +359,14 @@ export default function DashboardPage() {
                 <Badge className="bg-white/20 text-white border-white/30">
                   Member since {stats.profile.memberSince}
                 </Badge>
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline" 
+                  size="sm" 
+                  className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+                >
+                  Refresh Stats
+                </Button>
               </div>
             </div>
             <div className="text-right">

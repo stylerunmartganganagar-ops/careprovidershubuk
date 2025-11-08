@@ -757,7 +757,7 @@ export function useServiceDetail(serviceId: string | undefined) {
 }
 
 // Function to update seller's rating and review count in the users table
-async function updateSellerRating(revieweeId: string) {
+export async function updateSellerRating(revieweeId: string) {
   try {
     // Get all reviews for this seller
     const { data: reviews, error: fetchError } = await supabase
@@ -850,11 +850,6 @@ export function useServiceReviews(serviceId: string | undefined) {
         }));
 
         setReviews(formattedReviews);
-        
-        // Update the seller's rating and review count in the users table
-        if (serviceData?.provider_id) {
-          await updateSellerRating(serviceData.provider_id);
-        }
       } catch (err) {
         console.error('Error fetching reviews:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch reviews');

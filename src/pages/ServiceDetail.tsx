@@ -38,12 +38,81 @@ export default function ServiceDetail() {
   const navigate = useNavigate();
   const [selectedImage, setSelectedImage] = useState(0);
   const [showFullDescription, setShowFullDescription] = useState(false);
+  const [enrichedService, setEnrichedService] = useState<any>(null);
 
   const { service, loading, error } = useServiceDetail(id);
   const { reviews } = useServiceReviews(id);
-  const { services: relatedServices } = useRelatedServices(id, service?.category);
-  const { portfolioItems } = useSellerPortfolio(service?.provider_id);
+  const { services: relatedServices } = useRelatedServices(id, currentService?.category);
+  const { portfolioItems } = useSellerPortfolio(currentService?.provider_id);
   const { user } = useAuth();
+
+  // Enrich service with calculated ratings from reviews
+  useEffect(() => {
+    const enrich = async () => {
+      if (!service) { setEnrichedService(null); return; }
+
+      try {
+        // First, get the service to find the provider_id (same as useServiceReviews)
+        const { data: serviceData, error: serviceError } = await supabase
+          .from('services')
+          .select('provider_id')
+          .eq('id', id)
+          .single();
+
+        if (serviceError || !serviceData?.provider_id) {
+          console.error('Failed to get service provider_id:', serviceError);
+          setEnrichedService(service);
+          return;
+        }
+
+        const providerId = serviceData.provider_id;
+
+        // Get all reviews for this provider
+        const { data: allReviews, error: reviewError } = await supabase
+          .from('reviews')
+          .select('reviewee_id, rating')
+          .eq('reviewee_id', providerId);
+
+        // Also get the current user rating from the users table as backup
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id, rating, review_count')
+          .eq('id', providerId);
+
+        let finalRating = 0;
+        let finalReviewCount = 0;
+
+        if (allReviews && allReviews.length > 0) {
+          const totalRating = allReviews.reduce((sum, r) => sum + Number(r.rating), 0);
+          finalRating = totalRating / allReviews.length;
+          finalReviewCount = allReviews.length;
+        } else if (userData && userData[0]) {
+          finalRating = Number(userData[0].rating) || 0;
+          finalReviewCount = Number(userData[0].review_count) || 0;
+        }
+
+        const enriched = {
+          ...service,
+          provider: {
+            ...(service.provider || {}),
+            rating: parseFloat(finalRating.toFixed(1)),
+            review_count: finalReviewCount,
+          }
+        };
+
+        setEnrichedService(enriched);
+      } catch (err) {
+        console.error('Error enriching service:', err);
+        setEnrichedService(service);
+      }
+    };
+
+    if (service) {
+      enrich();
+    }
+  }, [service, id]);
+
+  const currentService = enrichedService || service;
 
   const handleContact = async (sellerId: string) => {
     // Navigate to the seller's profile page
@@ -61,7 +130,7 @@ export default function ServiceDetail() {
     );
   }
 
-  if (error || !service) {
+  if (error || !currentService) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -117,7 +186,7 @@ export default function ServiceDetail() {
             <CardContent className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
-                  <h1 className="text-3xl font-bold text-gray-900 mb-2">{service.title}</h1>
+                  <h1 className="text-3xl font-bold text-gray-900 mb-2">{currentService.title}</h1>
                   <div className="flex items-center space-x-4 text-sm text-gray-600 mb-4">
                     <div className="flex items-center">
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
@@ -126,12 +195,12 @@ export default function ServiceDetail() {
                     </div>
                     <div className="flex items-center">
                       <Clock className="h-4 w-4 mr-1" />
-                      <span>{service.delivery_time}</span>
+                      <span>{currentService.delivery_time}</span>
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-3xl font-bold text-gray-900 mb-1">£{service.price}</div>
+                  <div className="text-3xl font-bold text-gray-900 mb-1">£{currentService.price}</div>
                   <div className="text-sm text-gray-500">Starting price</div>
                 </div>
               </div>
@@ -139,19 +208,19 @@ export default function ServiceDetail() {
           </Card>
 
           {/* Mobile Image Gallery */}
-          {service.images && service.images.length > 0 && (
+          {currentService.images && currentService.images.length > 0 && (
             <Card>
               <CardContent className="p-0">
                 <div className="relative">
                   <div className="aspect-[4/3] relative overflow-hidden">
                     <img
-                      src={service.images[selectedImage]}
-                      alt={service.title}
+                      src={currentService.images[selectedImage]}
+                      alt={currentService.title}
                       className="w-full h-full object-cover"
                     />
-                    {service.images.length > 1 && (
+                    {currentService.images.length > 1 && (
                       <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2">
-                        {service.images.map((_, index) => (
+                        {currentService.images.map((_, index) => (
                           <button
                             key={index}
                             onClick={() => setSelectedImage(index)}
@@ -163,9 +232,9 @@ export default function ServiceDetail() {
                       </div>
                     )}
                   </div>
-                  {service.images.length > 1 && (
+                  {currentService.images.length > 1 && (
                     <div className="p-4 grid grid-cols-4 gap-2">
-                      {service.images.map((image, index) => (
+                      {currentService.images.map((image, index) => (
                         <button
                           key={index}
                           onClick={() => setSelectedImage(index)}
@@ -189,18 +258,18 @@ export default function ServiceDetail() {
               <h3 className="font-semibold mb-4">About the Seller</h3>
               <div className="flex items-center space-x-3 mb-4">
                 <Avatar className="h-12 w-12">
-                  <img src={service.provider?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={service.provider?.name} />
+                  <img src={currentService.provider?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={currentService.provider?.name} />
                 </Avatar>
                 <div>
-                  <div className="font-medium">{service.provider?.name}</div>
-                  <div className="text-sm text-gray-600">@{service.provider?.username}</div>
+                  <div className="font-medium">{currentService.provider?.name}</div>
+                  <div className="text-sm text-gray-600">@{currentService.provider?.username}</div>
                   <div className="flex items-center text-xs text-gray-600 mt-1">
                     <Star className="h-3 w-3 mr-1 fill-yellow-400 text-yellow-400" />
-                    <span>{(service.provider?.rating || 0).toFixed(1)} ({service.provider?.review_count || 0} reviews)</span>
+                    <span>{(currentService.provider?.rating || 0).toFixed(1)} ({currentService.provider?.review_count || 0} reviews)</span>
                   </div>
                 </div>
               </div>
-              <Button className="w-full" onClick={() => handleContact(service.provider_id)}>
+              <Button className="w-full" onClick={() => handleContact(currentService.provider_id)}>
                 <MessageSquare className="h-4 w-4 mr-2" />
                 View Seller Profile
               </Button>
@@ -252,16 +321,16 @@ export default function ServiceDetail() {
               <div className="space-y-4 mb-6">
                 <div className="flex justify-between items-center">
                   <span>Service Price</span>
-                  <span className="font-semibold">£{service.price}</span>
+                  <span className="font-semibold">£{currentService.price}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span>Delivery Time</span>
-                  <span>{service.delivery_time}</span>
+                  <span>{currentService.delivery_time}</span>
                 </div>
               </div>
-              <Button className="w-full text-lg py-3 mb-4" size="lg" onClick={() => handleContact(service.provider_id)}>
+              <Button className="w-full text-lg py-3 mb-4" size="lg" onClick={() => handleContact(currentService.provider_id)}>
                 <MessageSquare className="h-5 w-5 mr-2" />
-                Continue (£{service.price})
+                Continue (£{currentService.price})
               </Button>
             </CardContent>
           </Card>
@@ -283,8 +352,8 @@ export default function ServiceDetail() {
                   <div>
                     <h3 className="text-2xl font-semibold mb-4">About This Service</h3>
                     <div className="text-gray-700 leading-relaxed text-lg">
-                      {showFullDescription ? service.description : `${service.description?.slice(0, 500)}...`}
-                      {service.description && service.description.length > 500 && (
+                      {showFullDescription ? currentService.description : `${currentService.description?.slice(0, 500)}...`}
+                      {currentService.description && currentService.description.length > 500 && (
                         <Button
                           variant="link"
                           className="p-0 h-auto font-semibold"
@@ -296,11 +365,11 @@ export default function ServiceDetail() {
                     </div>
                   </div>
 
-                  {service.requirements && service.requirements.length > 0 && (
+                  {currentService.requirements && currentService.requirements.length > 0 && (
                     <div>
                       <h4 className="text-xl font-semibold mb-4">What I Need From You</h4>
                       <div className="space-y-3">
-                        {service.requirements.map((req: string, index: number) => (
+                        {currentService.requirements.map((req: string, index: number) => (
                           <div key={index} className="flex items-start">
                             <CheckCircle className="h-6 w-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
                             <span className="text-gray-700 text-lg">{req}</span>
@@ -396,7 +465,7 @@ export default function ServiceDetail() {
                                 ))}
                               </div>
                             ) : (
-                              <div className="flex items-center justify-center h-24 rounded-md bg-gray-100 text-gray-500 text-sm">
+                              <div className="flex items-center justify-center h-28 rounded-md bg-gray-100 text-gray-500 text-sm">
                                 No visuals uploaded
                               </div>
                             )}
@@ -419,7 +488,7 @@ export default function ServiceDetail() {
                   <Card>
                     <CardContent className="p-4">
                       <h4 className="font-semibold mb-2">How long does it take?</h4>
-                      <p className="text-gray-700 text-sm">Typically {service.delivery_time}.</p>
+                      <p className="text-gray-700 text-sm">Typically {currentService.delivery_time}.</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -433,19 +502,19 @@ export default function ServiceDetail() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left Side - Image Gallery */}
             <div className="lg:col-span-7">
-              {service.images && service.images.length > 0 ? (
+              {currentService.images && currentService.images.length > 0 ? (
                 <Card>
                   <CardContent className="p-0">
                     <div className="relative">
                       <div className="aspect-[4/3] relative overflow-hidden rounded-t-lg">
                         <img
-                          src={service.images[selectedImage]}
-                          alt={service.title}
+                          src={currentService.images[selectedImage]}
+                          alt={currentService.title}
                           className="w-full h-full object-cover"
                         />
-                        {service.images.length > 1 && (
+                        {currentService.images.length > 1 && (
                           <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2">
-                            {service.images.map((_, index) => (
+                            {currentService.images.map((_, index) => (
                               <button
                                 key={index}
                                 onClick={() => setSelectedImage(index)}
@@ -457,9 +526,9 @@ export default function ServiceDetail() {
                           </div>
                         )}
                       </div>
-                      {service.images.length > 1 && (
+                      {currentService.images.length > 1 && (
                         <div className="p-4 grid grid-cols-5 gap-3">
-                          {service.images.map((image, index) => (
+                          {currentService.images.map((image, index) => (
                             <button
                               key={index}
                               onClick={() => setSelectedImage(index)}
@@ -538,8 +607,8 @@ export default function ServiceDetail() {
                       <div>
                         <h3 className="text-2xl font-semibold mb-4">About This Service</h3>
                         <div className="text-gray-700 leading-relaxed text-lg">
-                          {showFullDescription ? service.description : `${service.description?.slice(0, 500)}...`}
-                          {service.description && service.description.length > 500 && (
+                          {showFullDescription ? currentService.description : `${currentService.description?.slice(0, 500)}...`}
+                          {currentService.description && currentService.description.length > 500 && (
                             <Button
                               variant="link"
                               className="p-0 h-auto font-semibold"
@@ -551,11 +620,11 @@ export default function ServiceDetail() {
                         </div>
                       </div>
 
-                      {service.requirements && service.requirements.length > 0 && (
+                      {currentService.requirements && currentService.requirements.length > 0 && (
                         <div>
                           <h4 className="text-xl font-semibold mb-4">What I Need From You</h4>
                           <div className="space-y-3">
-                            {service.requirements.map((req: string, index: number) => (
+                            {currentService.requirements.map((req: string, index: number) => (
                               <div key={index} className="flex items-start">
                                 <CheckCircle className="h-6 w-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
                                 <span className="text-gray-700 text-lg">{req}</span>
@@ -718,7 +787,7 @@ export default function ServiceDetail() {
                       <Card>
                         <CardContent className="p-6">
                           <h4 className="font-semibold mb-2">How long does it take to complete this service?</h4>
-                          <p className="text-gray-700">The service typically takes {service.delivery_time} to complete, depending on the complexity and your requirements.</p>
+                          <p className="text-gray-700">The service typically takes {currentService.delivery_time} to complete, depending on the complexity and your requirements.</p>
                         </CardContent>
                       </Card>
                       <Card>
@@ -746,7 +815,7 @@ export default function ServiceDetail() {
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between mb-6">
                     <div className="flex-1">
-                      <h1 className="text-3xl font-bold text-gray-900 mb-4">{service.title}</h1>
+                      <h1 className="text-3xl font-bold text-gray-900 mb-4">{currentService.title}</h1>
                       <div className="flex items-center space-x-6 text-lg text-gray-600 mb-4">
                         <div className="flex items-center">
                           <Star className="h-5 w-5 fill-yellow-400 text-yellow-400 mr-1" />
@@ -755,7 +824,7 @@ export default function ServiceDetail() {
                         </div>
                         <div className="flex items-center">
                           <Clock className="h-5 w-5 mr-2" />
-                          <span>{service.delivery_time}</span>
+                          <span>{currentService.delivery_time}</span>
                         </div>
                         <div className="flex items-center">
                           <Shield className="h-5 w-5 mr-2" />
@@ -763,7 +832,7 @@ export default function ServiceDetail() {
                         </div>
                       </div>
                       <div className="flex items-center space-x-2 mb-4">
-                        {service.tags?.slice(0, 4).map((tag: string, index: number) => (
+                        {currentService.tags?.slice(0, 4).map((tag: string, index: number) => (
                           <Badge key={index} variant="secondary" className="text-sm">
                             {tag}
                           </Badge>
@@ -771,7 +840,7 @@ export default function ServiceDetail() {
                       </div>
                     </div>
                     <div className="text-right ml-6">
-                      <div className="text-4xl font-bold text-gray-900 mb-2">£{service.price}</div>
+                      <div className="text-4xl font-bold text-gray-900 mb-2">£{currentService.price}</div>
                       <div className="text-sm text-gray-500">Starting price</div>
                     </div>
                   </div>
@@ -783,7 +852,7 @@ export default function ServiceDetail() {
                       <div className="text-sm text-gray-600">Reviews</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-xl font-bold text-gray-900">{service.delivery_time}</div>
+                      <div className="text-xl font-bold text-gray-900">{currentService.delivery_time}</div>
                       <div className="text-sm text-gray-600">Delivery</div>
                     </div>
                   </div>
@@ -797,11 +866,11 @@ export default function ServiceDetail() {
                   <div className="space-y-4 mb-6">
                     <div className="flex justify-between items-center text-lg">
                       <span>Service Price</span>
-                      <span className="font-bold">£{service.price}</span>
+                      <span className="font-bold">£{currentService.price}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span>Delivery Time</span>
-                      <span>{service.delivery_time}</span>
+                      <span>{currentService.delivery_time}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span>Revisions</span>
@@ -810,7 +879,7 @@ export default function ServiceDetail() {
                   </div>
                   <Button className="w-full text-lg py-3 mb-4" size="lg">
                     <MessageSquare className="h-5 w-5 mr-2" />
-                    Continue (£{service.price})
+                    Continue (£{currentService.price})
                   </Button>
                   <Button variant="outline" className="w-full" size="lg">
                     <Heart className="h-4 w-4 mr-2" />
@@ -825,11 +894,11 @@ export default function ServiceDetail() {
                   <h3 className="font-semibold mb-4">About the Seller</h3>
                   <div className="flex items-center space-x-3 mb-4">
                     <Avatar className="h-14 w-14">
-                      <img src={service.provider?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={service.provider?.name} />
+                      <img src={currentService.provider?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={currentService.provider?.name} />
                     </Avatar>
                     <div>
-                      <div className="font-semibold text-lg">{service.provider?.name}</div>
-                      <div className="text-sm text-gray-600">@{service.provider?.username}</div>
+                      <div className="font-semibold text-lg">{currentService.provider?.name}</div>
+                      <div className="text-sm text-gray-600">@{currentService.provider?.username}</div>
                     </div>
                   </div>
 
@@ -838,12 +907,12 @@ export default function ServiceDetail() {
                       <span className="text-sm">Rating</span>
                       <div className="flex items-center">
                         <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-                        <span className="font-medium">{service.provider?.rating?.toFixed(1) || '0.0'}</span>
+                        <span className="font-medium">{currentService.provider?.rating?.toFixed(1) || '0.0'}</span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Reviews</span>
-                      <span className="font-medium">{service.provider?.review_count || 0}</span>
+                      <span className="font-medium">{currentService.provider?.review_count || 0}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Response Time</span>
@@ -855,12 +924,12 @@ export default function ServiceDetail() {
                     <Button
                       className="flex-1"
                       variant="outline"
-                      onClick={() => navigate(`/seller/${service.provider_id}`)}
+                      onClick={() => navigate(`/seller/${currentService.provider_id}`)}
                     >
                       <User className="h-4 w-4 mr-2" />
                       View Profile
                     </Button>
-                    <Button className="flex-1" onClick={() => handleContact(service.provider_id)}>
+                    <Button className="flex-1" onClick={() => handleContact(currentService.provider_id)}>
                       <MessageSquare className="h-4 w-4 mr-2" />
                       Contact
                     </Button>

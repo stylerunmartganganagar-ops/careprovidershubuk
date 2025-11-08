@@ -10,6 +10,7 @@ import { Badge } from '../components/ui/badge';
 import { Star } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth.tsx';
+import { BuyerRatingDialog } from '../components/BuyerRatingDialog';
 
 interface OrderRow {
   id: string;
@@ -37,6 +38,8 @@ export default function OrderDeliveryPage() {
   const [rating, setRating] = useState<number>(5);
   const [reviewText, setReviewText] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [buyerRated, setBuyerRated] = useState(false);
+  const [buyerInfo, setBuyerInfo] = useState<{name: string} | null>(null);
 
   const isSeller = user && order ? user.id === order.provider_id : false;
   const isBuyer = user && order ? user.id === order.buyer_id : false;
@@ -53,7 +56,32 @@ export default function OrderDeliveryPage() {
           .eq('id', id)
           .single();
         if (error) throw error;
-        if (active) setOrder(data as OrderRow);
+
+        const orderData = data as OrderRow;
+        if (active) setOrder(orderData);
+
+        // Load buyer information if user is seller
+        if (user && orderData && user.id === orderData.provider_id) {
+          const { data: buyerData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', orderData.buyer_id)
+            .single();
+
+          if (buyerData) {
+            setBuyerInfo(buyerData);
+          }
+
+          // Check if buyer has already been rated
+          const { data: reviewData } = await supabase
+            .from('reviews')
+            .select('buyer_rating')
+            .eq('order_id', id)
+            .not('buyer_rating', 'is', null)
+            .single();
+
+          setBuyerRated(!!reviewData);
+        }
       } catch (e) {
         console.error('Failed to load order', e);
       } finally {
@@ -231,7 +259,47 @@ export default function OrderDeliveryPage() {
             </CardContent>
           </Card>
         )}
+
+        {isSeller && order.status === 'completed' && !buyerRated && buyerInfo && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Rate Your Buyer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-600 mb-4">
+                How was your experience working with {buyerInfo.name}? Your feedback helps maintain quality standards.
+              </p>
+              <BuyerRatingDialog
+                orderId={order.id}
+                buyerId={order.buyer_id}
+                buyerName={buyerInfo.name}
+                onRatingSubmitted={() => {
+                  setBuyerRated(true);
+                }}
+                trigger={
+                  <Button className="w-full">
+                    Rate Buyer
+                  </Button>
+                }
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {isSeller && order.status === 'completed' && buyerRated && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center text-green-600">
+                <Star className="h-5 w-5 mr-2 fill-current" />
+                <span className="font-medium">Buyer rated successfully!</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
       </div>
+
+      <Footer />
     </div>
   );
 }

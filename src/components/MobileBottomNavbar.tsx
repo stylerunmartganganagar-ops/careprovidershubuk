@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { Button } from './ui/button';
@@ -29,12 +29,52 @@ import {
 
 import { MessageDrawer } from './MessageDrawer';
 import { NotificationDrawer } from './NotificationDrawer';
+import { useNotifications } from '../hooks/useNotifications';
+import { supabase } from '../lib/supabase';
 
 export function MobileBottomNavbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const { unreadCount: unreadNotificationsCount, refetch: refetchNotifications } = useNotifications();
+
+  const fetchUnreadMessages = useCallback(async () => {
+    if (!user?.id) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+
+    try {
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('receiver_id', user.id)
+        .eq('is_read', false);
+
+      setUnreadMessagesCount(count || 0);
+    } catch (error) {
+      console.error('Error fetching unread messages count:', error);
+      setUnreadMessagesCount(0);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchUnreadMessages();
+  }, [fetchUnreadMessages]);
+
+  useEffect(() => {
+    if (!messagesOpen) {
+      fetchUnreadMessages();
+    }
+  }, [messagesOpen, fetchUnreadMessages]);
+
+  useEffect(() => {
+    if (!notificationsOpen) {
+      refetchNotifications();
+    }
+  }, [notificationsOpen, refetchNotifications]);
 
   return (
     <>
@@ -84,9 +124,11 @@ export function MobileBottomNavbar() {
           >
             <div className="relative">
               <Bell className="h-5 w-5 text-gray-600 mb-1" />
-              <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white min-w-[16px] shadow-sm">
-                3
-              </Badge>
+              {unreadNotificationsCount > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white min-w-[16px] shadow-sm">
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </Badge>
+              )}
             </div>
             <span className="text-xs text-gray-600">Alerts</span>
           </Button>

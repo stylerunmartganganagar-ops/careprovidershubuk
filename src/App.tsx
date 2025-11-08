@@ -53,6 +53,8 @@ import Home from "./pages/Home";
 import TokenPurchasePage from "./pages/TokenPurchasePage";
 import OrderDeliveryPage from "./pages/OrderDeliveryPage";
 import BidDetailPage from "./pages/BidDetailPage";
+import KYCVerification from "./pages/KYCVerification";
+import AdminKYC from "./pages/AdminKYC";
 import { supabase } from './lib/supabase';
 
 const queryClient = new QueryClient();
@@ -166,6 +168,22 @@ const App = () => (
                 />
                 <Route path="/messages" element={<MessagesPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
+                <Route
+                  path="/kyc-verification"
+                  element={
+                    <ProtectedRoute>
+                      <KYCVerification />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/admin/kyc"
+                  element={
+                    <AdminProtectedRoute>
+                      <AdminKYC />
+                    </AdminProtectedRoute>
+                  }
+                />
                 <Route path="/admin/protectedroute/providershub/login" element={<AdminLogin />} />
                 <Route
                   path="/admin/protectedroute/providershub"

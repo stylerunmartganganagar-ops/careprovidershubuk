@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { Button } from './ui/button';
@@ -28,6 +28,8 @@ import {
 import { MessageDrawer } from './MessageDrawer';
 import { NotificationDrawer } from './NotificationDrawer';
 import { HelpDrawer } from './HelpDrawer';
+import { useNotifications } from '../hooks/useNotifications';
+import { supabase } from '../lib/supabase';
 
 export function HeaderUserMenu() {
   const { user, logout } = useAuth();
@@ -35,6 +37,44 @@ export function HeaderUserMenu() {
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const { unreadCount: unreadNotificationsCount, refetch: refetchNotifications } = useNotifications();
+
+  const fetchUnreadMessages = useCallback(async () => {
+    if (!user?.id) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+
+    try {
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('receiver_id', user.id)
+        .eq('read', false);
+
+      setUnreadMessagesCount(count || 0);
+    } catch (error) {
+      console.error('Error fetching unread messages count:', error);
+      setUnreadMessagesCount(0);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchUnreadMessages();
+  }, [fetchUnreadMessages]);
+
+  useEffect(() => {
+    if (!messagesOpen) {
+      fetchUnreadMessages();
+    }
+  }, [messagesOpen, fetchUnreadMessages]);
+
+  useEffect(() => {
+    if (!notificationsOpen) {
+      refetchNotifications();
+    }
+  }, [notificationsOpen, refetchNotifications]);
 
   const isSeller = user?.role === 'provider';
   const isBuyer = user?.role === 'client';
@@ -44,15 +84,24 @@ export function HeaderUserMenu() {
       <div className="flex items-center space-x-2">
         <Button variant="ghost" size="icon" className="relative" onClick={() => setNotificationsOpen(true)}>
           <Bell className="h-5 w-5" />
-          <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white">
-            3
-          </Badge>
+          {unreadNotificationsCount > 0 && (
+            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white">
+              {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+            </Badge>
+          )}
         </Button>
-        <Button variant="ghost" size="icon" className="relative" onClick={() => setMessagesOpen(true)}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          onClick={() => setMessagesOpen(true)}
+        >
           <MessageSquare className="h-5 w-5" />
-          <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white">
-            5
-          </Badge>
+          {unreadMessagesCount > 0 && (
+            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs bg-red-500 text-white">
+              {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+            </Badge>
+          )}
         </Button>
         <Button variant="ghost" size="icon" onClick={() => setHelpOpen(true)}>
           <BookOpen className="h-5 w-5" />

@@ -30,6 +30,7 @@ export interface Database {
           created_at: string
           updated_at: string
           bid_tokens: number
+          phone: string | null
         }
         Insert: {
           id: string
@@ -51,6 +52,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           bid_tokens?: number
+          phone?: string | null
         }
         Update: {
           id?: string
@@ -72,6 +74,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           bid_tokens?: number
+          phone?: string | null
         }
       }
       services: {
@@ -188,6 +191,9 @@ export interface Database {
           reviewee_id: string
           rating: number
           comment: string | null
+          buyer_rating: number | null
+          buyer_comment: string | null
+          buyer_rated_at: string | null
           created_at: string
         }
         Insert: {
@@ -197,6 +203,9 @@ export interface Database {
           reviewee_id: string
           rating: number
           comment?: string | null
+          buyer_rating?: number | null
+          buyer_comment?: string | null
+          buyer_rated_at?: string | null
           created_at?: string
         }
         Update: {
@@ -206,6 +215,9 @@ export interface Database {
           reviewee_id?: string
           rating?: number
           comment?: string | null
+          buyer_rating?: number | null
+          buyer_comment?: string | null
+          buyer_rated_at?: string | null
           created_at?: string
         }
       }
@@ -419,39 +431,51 @@ export interface Database {
           updated_at?: string
         }
       }
-      token_purchases: {
+      kyc_documents: {
         Row: {
           id: string
-          seller_id: string
-          plan_id: string
-          tokens: number
-          amount: number
-          currency: string
-          status: string
-          metadata: Json | null
+          user_id: string
+          document_type: 'passport' | 'drivers_license' | 'national_id' | 'utility_bill' | 'bank_statement' | 'other'
+          front_document_url: string
+          back_document_url: string | null
+          selfie_url: string | null
+          status: 'pending' | 'approved' | 'rejected'
+          rejection_reason: string | null
+          submitted_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
-          seller_id: string
-          plan_id: string
-          tokens: number
-          amount: number
-          currency?: string
-          status?: string
-          metadata?: Json | null
+          user_id: string
+          document_type: 'passport' | 'drivers_license' | 'national_id' | 'utility_bill' | 'bank_statement' | 'other'
+          front_document_url: string
+          back_document_url?: string | null
+          selfie_url?: string | null
+          status?: 'pending' | 'approved' | 'rejected'
+          rejection_reason?: string | null
+          submitted_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
-          seller_id?: string
-          plan_id?: string
-          tokens?: number
-          amount?: number
-          currency?: string
-          status?: string
-          metadata?: Json | null
+          user_id?: string
+          document_type?: 'passport' | 'drivers_license' | 'national_id' | 'utility_bill' | 'bank_statement' | 'other'
+          front_document_url?: string
+          back_document_url?: string | null
+          selfie_url?: string | null
+          status?: 'pending' | 'approved' | 'rejected'
+          rejection_reason?: string | null
+          submitted_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           created_at?: string
+          updated_at?: string
         }
       }
     }

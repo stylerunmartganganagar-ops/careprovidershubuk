@@ -1,7 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useSearch } from '../contexts/SearchContext';
+import { useNotifications } from '../hooks/useNotifications';
+import { supabase } from '../lib/supabase';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Avatar } from './ui/avatar';
@@ -44,6 +46,7 @@ import { HeaderUserMenu } from './HeaderUserMenu';
 export function DashboardHeader() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { unreadCount } = useNotifications();
 
   const {
     searchQuery,
@@ -58,9 +61,59 @@ export function DashboardHeader() {
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [stats, setStats] = useState({
+    activeOrders: 0,
+    unreadMessages: 0,
+    totalSpent: 0
+  });
 
   // Ref for search input to control focus
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch real stats
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (!user?.id) return;
+
+      try {
+        // Get active orders count
+        const { count: activeOrdersCount } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('buyer_id', user.id)
+          .in('status', ['pending', 'in_progress']);
+
+        // Get unread messages count
+        const { count: unreadMessagesCount } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('receiver_id', user.id)
+          .eq('read', false);
+
+        // Get total spent
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('price')
+          .eq('buyer_id', user.id)
+          .in('status', ['completed']);
+
+        const totalSpent = (orders as { price: number | string }[] | null)?.reduce(
+          (sum, order) => sum + parseFloat(order.price?.toString() || '0'),
+          0
+        ) || 0;
+
+        setStats({
+          activeOrders: activeOrdersCount || 0,
+          unreadMessages: unreadMessagesCount || 0,
+          totalSpent
+        });
+      } catch (error) {
+        console.error('Error fetching header stats:', error);
+      }
+    };
+
+    fetchStats();
+  }, [user?.id]);
 
   return (
     <>
@@ -71,17 +124,17 @@ export function DashboardHeader() {
             <div className="flex items-center space-x-3 md:space-x-6">
               <div className="flex items-center space-x-2">
                 <TrendingUp className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-medium">12</span>
+                <span className="text-sm font-medium">{stats.activeOrders}</span>
                 <span className="text-xs text-gray-500">active orders</span>
               </div>
               <div className="flex items-center space-x-2">
                 <MessageSquare className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-medium">5</span>
+                <span className="text-sm font-medium">{stats.unreadMessages}</span>
                 <span className="text-xs text-gray-500">unread messages</span>
               </div>
               <div className="flex items-center space-x-2">
                 <Package className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-medium">£8,450</span>
+                <span className="text-sm font-medium">£{stats.totalSpent.toLocaleString()}</span>
                 <span className="text-xs text-gray-500">total spent</span>
               </div>
             </div>
@@ -119,9 +172,11 @@ export function DashboardHeader() {
                 className="relative"
               >
                 <MessageSquare className="h-5 w-5" />
-                <Badge className="hidden md:flex absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 items-center justify-center text-xs bg-red-500 text-white">
-                  5
-                </Badge>
+                {stats.unreadMessages > 0 && (
+                  <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 items-center justify-center text-xs bg-red-500 text-white">
+                    {stats.unreadMessages > 9 ? '9+' : stats.unreadMessages}
+                  </Badge>
+                )}
               </Button>
               <Button
                 variant="ghost"

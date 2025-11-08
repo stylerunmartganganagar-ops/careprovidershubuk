@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { useSearch } from '../contexts/SearchContext';
@@ -40,6 +40,8 @@ import { HeaderLogo } from './HeaderLogo';
 import { HeaderSearchBar } from './HeaderSearchBar';
 import { HeaderActionButtons } from './HeaderActionButtons';
 import { HeaderUserMenu } from './HeaderUserMenu';
+import { useNotifications } from '../hooks/useNotifications';
+import { supabase } from '../lib/supabase';
 
 export function SellerDashboardHeader() {
   const { user, logout } = useAuth();
@@ -58,6 +60,44 @@ export function SellerDashboardHeader() {
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const { unreadCount: unreadNotificationsCount, refetch: refetchNotifications } = useNotifications();
+
+  const fetchUnreadMessages = useCallback(async () => {
+    if (!user?.id) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+
+    try {
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('receiver_id', user.id)
+        .eq('is_read', false);
+
+      setUnreadMessagesCount(count || 0);
+    } catch (error) {
+      console.error('Error fetching unread messages count:', error);
+      setUnreadMessagesCount(0);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    fetchUnreadMessages();
+  }, [fetchUnreadMessages]);
+
+  useEffect(() => {
+    if (!messagesOpen) {
+      fetchUnreadMessages();
+    }
+  }, [messagesOpen, fetchUnreadMessages]);
+
+  useEffect(() => {
+    if (!notificationsOpen) {
+      refetchNotifications();
+    }
+  }, [notificationsOpen, refetchNotifications]);
 
   const isSeller = user?.role === 'provider';
   const isBuyer = user?.role === 'client';
@@ -91,9 +131,11 @@ export function SellerDashboardHeader() {
                 className="relative"
               >
                 <MessageSquare className="h-5 w-5" />
-                <Badge className="hidden md:flex absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 items-center justify-center text-xs bg-red-500 text-white">
-                  5
-                </Badge>
+                {unreadMessagesCount > 0 && (
+                  <Badge className="absolute -top-1 -right-1 h-4 w-4 rounded-full p-0 items-center justify-center text-[10px] bg-red-500 text-white">
+                    {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+                  </Badge>
+                )}
               </Button>
               <Button
                 variant="ghost"
