@@ -56,7 +56,6 @@ import {
   Plus
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Database } from '../lib/database.types';
 
 type UserRecord = {
   id: string;
@@ -1959,18 +1958,18 @@ export default function AdminPanel() {
               </TableCell>
               <TableCell>
                 <div className="flex space-x-1">
-                  <Button size="sm" variant="outline" onClick={() => handleViewSeller(seller.id)}>
+                  <Button size="sm" variant="outline" onClick={() => handleViewSeller(String(seller.id))}>
                     <Eye className="h-4 w-4" />
                   </Button>
                   {!seller.banned && (
-                    <Button size="sm" variant="outline" onClick={() => handleWarnSeller(seller.id)}>
+                    <Button size="sm" variant="outline" onClick={() => handleWarnSeller(String(seller.id))}>
                       <AlertTriangle className="h-4 w-4" />
                     </Button>
                   )}
                   <Button 
                     size="sm" 
                     variant={seller.banned ? "outline" : "destructive"}
-                    onClick={() => handleBanSeller(seller.id, seller.banned)}
+                    onClick={() => handleBanSeller(String(seller.id), seller.banned)}
                   >
                     {seller.banned ? <Unlock className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                   </Button>
@@ -2224,3 +2223,7 @@ export default function AdminPanel() {
     </div>
   );
 }
+function handleReject(approval: ApprovalItem): void {
+  throw new Error('Function not implemented.');
+}
+

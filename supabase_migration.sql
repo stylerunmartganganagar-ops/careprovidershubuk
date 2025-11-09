@@ -192,45 +192,64 @@ CREATE POLICY IF NOT EXISTS "Sellers can record their token purchases" ON token_
     FOR INSERT
     WITH CHECK (auth.uid() = seller_id);
 
--- Function to record purchase atomically
-CREATE OR REPLACE FUNCTION record_token_purchase(p_seller_id UUID, p_plan_slug TEXT)
-RETURNS token_purchases
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-    plan_rec token_plans%ROWTYPE;
-    purchase_rec token_purchases%ROWTYPE;
+-- Create milestones table
+CREATE TABLE IF NOT EXISTS milestones (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    amount NUMERIC(10, 2) NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'GBP',
+    status TEXT NOT NULL DEFAULT 'pending',
+    due_date TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    paid_at TIMESTAMP WITH TIME ZONE,
+    payment_status TEXT DEFAULT 'pending',
+    payment_id TEXT,
+    seller_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    buyer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+    offer_id UUID REFERENCES offers(id) ON DELETE SET NULL, -- Keep for backward compatibility
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add indexes for milestones
+CREATE INDEX IF NOT EXISTS idx_milestones_order_id ON milestones(order_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_seller_id ON milestones(seller_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_buyer_id ON milestones(buyer_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
+
+-- Enable RLS for milestones
+ALTER TABLE milestones ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for milestones
+CREATE POLICY "Sellers can view their milestones" ON milestones
+    FOR SELECT USING (auth.uid() = seller_id);
+
+CREATE POLICY "Buyers can view milestones for their orders" ON milestones
+    FOR SELECT USING (auth.uid() = buyer_id);
+
+CREATE POLICY "Sellers can insert milestones for their orders" ON milestones
+    FOR INSERT WITH CHECK (auth.uid() = seller_id);
+
+CREATE POLICY "Sellers can update their milestones" ON milestones
+    FOR UPDATE USING (auth.uid() = seller_id);
+
+-- Function to update milestone updated_at
+CREATE OR REPLACE FUNCTION update_milestones_updated_at()
+RETURNS TRIGGER AS $$
 BEGIN
-    SELECT * INTO plan_rec
-    FROM token_plans
-    WHERE slug = p_plan_slug
-      AND is_active
-    LIMIT 1;
-
-    IF plan_rec.id IS NULL THEN
-        RAISE EXCEPTION 'PLAN_NOT_FOUND' USING ERRCODE = 'P0001';
-    END IF;
-
-    IF auth.uid() IS NULL OR auth.uid() <> p_seller_id THEN
-        RAISE EXCEPTION 'NOT_AUTHORIZED' USING ERRCODE = '28000';
-    END IF;
-
-    INSERT INTO token_purchases (seller_id, plan_id, tokens, amount, currency)
-    VALUES (p_seller_id, plan_rec.id, plan_rec.tokens, plan_rec.price, plan_rec.currency)
-    RETURNING * INTO purchase_rec;
-
-    UPDATE users
-    SET bid_tokens = COALESCE(bid_tokens, 0) + plan_rec.tokens
-    WHERE id = p_seller_id;
-
-    UPDATE token_plans
-    SET active_purchases = active_purchases + 1,
-        total_revenue = total_revenue + plan_rec.price,
-        updated_at = NOW()
-    WHERE id = plan_rec.id;
-
-    RETURN purchase_rec;
+    NEW.updated_at = NOW();
+    RETURN NEW;
 END;
-$$;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_update_milestones_updated_at ON milestones;
+CREATE TRIGGER trg_update_milestones_updated_at
+    BEFORE UPDATE ON milestones
+    FOR EACH ROW
+    EXECUTE FUNCTION update_milestones_updated_at();
+
+-- Add order_id to messages if not exists (for linking milestone messages)
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS order_id UUID REFERENCES orders(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_messages_order_id ON messages(order_id);

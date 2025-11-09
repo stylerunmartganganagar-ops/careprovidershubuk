@@ -136,89 +136,18 @@ export function SellerMobileBottomNavbar() {
             <span className="text-xs text-gray-600">Alerts</span>
           </Button>
 
-          {/* Profile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex flex-col h-auto py-2 px-2 rounded-xl hover:bg-gray-100/80 transition-all duration-200 relative">
-                <Avatar className="h-6 w-6 border-2 border-gray-200 mb-1">
-                  <img src={user?.avatar} alt={user?.name} />
-                </Avatar>
-                <span className="text-xs text-gray-600">Profile</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" align="end" side="top" forceMount>
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{user?.name}</p>
-                  <p className="text-xs leading-none text-muted-foreground">
-                    {user?.email}
-                  </p>
-                  <div className="flex items-center space-x-2 mt-2">
-                    <Badge variant="secondary" className="text-xs">
-                      {isSeller ? 'Seller' : 'Buyer'}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      Premium Member
-                    </Badge>
-                  </div>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/user-profile')}>
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </DropdownMenuItem>
-              {isBuyer && (
-                <>
-                  <DropdownMenuItem onClick={() => navigate('/my-orders')}>
-                    <Package className="mr-2 h-4 w-4" />
-                    My Orders
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/payment-history')}>
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    Payment History
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/saved-services')}>
-                    <Heart className="mr-2 h-4 w-4" />
-                    Saved Services
-                  </DropdownMenuItem>
-                </>
-              )}
-              {isSeller && (
-                <>
-                  <DropdownMenuItem onClick={() => navigate('/seller/manage-orders')}>
-                    <Package className="mr-2 h-4 w-4" />
-                    Orders Received
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/seller/earnings')}>
-                    <DollarSign className="mr-2 h-4 w-4" />
-                    Earnings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/favorites')}>
-                    <Heart className="mr-2 h-4 w-4" />
-                    Saved Projects
-                  </DropdownMenuItem>
-                </>
-              )}
-              <DropdownMenuItem onClick={() => navigate('/account-settings')}>
-                <Settings className="mr-2 h-4 w-4" />
-                Account Settings
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/payment-methods')}>
-                <CreditCard className="mr-2 h-4 w-4" />
-                Payment Methods
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/favorites')}>
-                <Heart className="mr-2 h-4 w-4" />
-                Favorites
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => logout()}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Profile (temporary simple button to isolate dropdown loop) */}
+          <Button
+            variant="ghost"
+            className="flex flex-col h-auto py-2 px-2 rounded-xl hover:bg-gray-100/80 transition-all duration-200 relative"
+            onClick={() => navigate('/user-profile')}
+            title={user?.email || 'Profile'}
+          >
+            <Avatar className="h-6 w-6 border-2 border-gray-200 mb-1">
+              <img src={user?.avatar} alt={user?.name} />
+            </Avatar>
+            <span className="text-xs text-gray-600">Profile</span>
+          </Button>
         </div>
       </nav>
 

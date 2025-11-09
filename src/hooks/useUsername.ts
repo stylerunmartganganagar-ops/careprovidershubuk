@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
-import { generateUsername } from '../lib/usernames';
+import { getUsername } from '../lib/usernames';
 
 export function useEnsureUsername() {
   const { user } = useAuth();
@@ -30,7 +30,7 @@ export function useEnsureUsername() {
         }
 
         // Generate and save username
-        const newUsername = generateUsername();
+        const newUsername = ensureUsername();
         console.log('Generating username for user:', user.id, '->', newUsername);
 
         const { error: updateError } = await supabase

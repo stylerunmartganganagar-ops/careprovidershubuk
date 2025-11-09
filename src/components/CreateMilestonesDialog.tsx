@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -11,26 +11,71 @@ import { useAuth } from '../lib/auth.tsx';
 import { toast } from 'sonner';
 
 interface CreateMilestonesDialogProps {
-  offerId: string;
+  milestoneOrderId: string;
   trigger: React.ReactNode;
   onMilestonesCreated?: () => void;
 }
 
 interface Milestone {
+  id?: string; // Optional ID for existing milestones
   title: string;
   description: string;
   amount: string;
   due_date: string;
 }
 
-export function CreateMilestonesDialog({ offerId, trigger, onMilestonesCreated }: CreateMilestonesDialogProps) {
+export function CreateMilestonesDialog({ milestoneOrderId, trigger, onMilestonesCreated }: CreateMilestonesDialogProps) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([
     { title: '', description: '', amount: '', due_date: '' }
   ]);
   const [error, setError] = useState('');
+
+  // Load existing milestones when dialog opens
+  const loadExistingMilestones = async () => {
+    if (!milestoneOrderId || !open) return;
+
+    setLoadingExisting(true);
+    try {
+      const { data, error } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('milestone_order_id', milestoneOrderId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // Convert existing milestones to the format expected by the form
+        const existingMilestones = data.map(m => ({
+          id: m.id,
+          title: m.title,
+          description: m.description || '',
+          amount: m.amount.toString(),
+          due_date: m.due_date ? new Date(m.due_date).toISOString().split('T')[0] : ''
+        }));
+        setMilestones(existingMilestones);
+      } else {
+        // No existing milestones, start with one empty form
+        setMilestones([{ title: '', description: '', amount: '', due_date: '' }]);
+      }
+    } catch (err) {
+      console.error('Failed to load existing milestones', err);
+      setMilestones([{ title: '', description: '', amount: '', due_date: '' }]);
+    } finally {
+      setLoadingExisting(false);
+    }
+  };
+
+  // Load milestones when dialog opens
+  useEffect(() => {
+    if (open) {
+      loadExistingMilestones();
+    }
+  }, [open, milestoneOrderId]);
 
   const addMilestone = () => {
     setMilestones(prev => [...prev, { title: '', description: '', amount: '', due_date: '' }]);
@@ -69,41 +114,96 @@ export function CreateMilestonesDialog({ offerId, trigger, onMilestonesCreated }
         }
       }
 
-      // Get offer details to verify ownership and get buyer info
-      const { data: offer, error: offerError } = await supabase
-        .from('offers')
-        .select('seller_id, buyer_id')
-        .eq('id', offerId)
+      // Get milestone order details to verify ownership and get buyer info
+      const { data: milestoneOrder, error: orderError } = await supabase
+        .from('milestone_orders')
+        .select('provider_id, buyer_id')
+        .eq('id', milestoneOrderId)
         .single();
 
-      if (offerError) throw offerError;
+      if (orderError) throw orderError;
 
-      if (offer.seller_id !== user?.id) {
-        throw new Error('You can only create milestones for your own offers');
+      if (milestoneOrder.provider_id !== user?.id) {
+        throw new Error('You can only create milestones for your own milestone orders');
       }
 
-      // Create milestones
-      const milestonesData = milestones.map(milestone => ({
-        offer_id: offerId,
-        seller_id: user?.id,
-        buyer_id: offer.buyer_id,
-        title: milestone.title,
-        description: milestone.description,
-        amount: parseFloat(milestone.amount),
-        currency: 'GBP',
-        due_date: new Date(milestone.due_date).toISOString(),
-        status: 'pending'
-      }));
+      // Separate new and existing milestones
+      const newMilestones = milestones.filter(m => !m.id);
+      const existingMilestones = milestones.filter(m => m.id);
 
-      const { error: insertError } = await supabase
-        .from('milestones')
-        .insert(milestonesData);
+      // Create new milestones
+      let newMilestonesData = [];
+      if (newMilestones.length > 0) {
+        newMilestonesData = newMilestones.map(milestone => ({
+          milestone_order_id: milestoneOrderId,
+          seller_id: user?.id,
+          buyer_id: milestoneOrder.buyer_id,
+          title: milestone.title,
+          description: milestone.description,
+          amount: parseFloat(milestone.amount),
+          currency: 'GBP',
+          due_date: new Date(milestone.due_date).toISOString(),
+          status: 'pending'
+        }));
 
-      if (insertError) throw insertError;
+        const { error: insertError } = await supabase
+          .from('milestones')
+          .insert(newMilestonesData);
 
-      toast.success(`${milestones.length} milestone(s) created successfully!`);
+        if (insertError) throw insertError;
+      }
+
+      // Update existing milestones
+      for (const milestone of existingMilestones) {
+        const { error: updateError } = await supabase
+          .from('milestones')
+          .update({
+            title: milestone.title,
+            description: milestone.description,
+            amount: parseFloat(milestone.amount),
+            due_date: new Date(milestone.due_date).toISOString(),
+          })
+          .eq('id', milestone.id)
+          .eq('seller_id', user?.id); // Ensure only seller can update
+
+        if (updateError) throw updateError;
+      }
+
+      const totalNewMilestones = newMilestones.length;
+      const totalUpdatedMilestones = existingMilestones.length;
+
+      // Send milestone created/updated message
+      if (totalNewMilestones > 0 || totalUpdatedMilestones > 0) {
+        const messageContent = totalNewMilestones > 0 && totalUpdatedMilestones > 0
+          ? `Milestones updated: ${totalNewMilestones} added, ${totalUpdatedMilestones} updated`
+          : totalNewMilestones > 0
+          ? `New milestones added: ${totalNewMilestones} milestone(s) totaling £${newMilestonesData.reduce((sum: number, m: any) => sum + m.amount, 0).toFixed(2)}`
+          : `Milestones updated: ${totalUpdatedMilestones} milestone(s) modified`;
+
+        const messageData = {
+          sender_id: user.id,
+          receiver_id: milestoneOrder.buyer_id,
+          content: messageContent,
+          message_type: 'milestone_created',
+          milestone_order_id: milestoneOrderId,
+          metadata: {
+            new_milestone_count: totalNewMilestones,
+            updated_milestone_count: totalUpdatedMilestones,
+            total_amount: newMilestonesData.reduce((sum: number, m: any) => sum + m.amount, 0)
+          }
+        };
+
+        await supabase.from('messages').insert(messageData);
+      }
+
+      const actionMessage = totalNewMilestones > 0 && totalUpdatedMilestones > 0
+        ? `${totalNewMilestones} milestone(s) added and ${totalUpdatedMilestones} updated successfully!`
+        : totalNewMilestones > 0
+        ? `${totalNewMilestones} milestone(s) added successfully!`
+        : `${totalUpdatedMilestones} milestone(s) updated successfully!`;
+
+      toast.success(actionMessage);
       setOpen(false);
-      setMilestones([{ title: '', description: '', amount: '', due_date: '' }]);
       onMilestonesCreated?.();
     } catch (err: any) {
       setError(err.message || 'Failed to create milestones');
@@ -121,7 +221,7 @@ export function CreateMilestonesDialog({ offerId, trigger, onMilestonesCreated }
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Target className="h-5 w-5" />
-            Create Milestones
+            {loadingExisting ? 'Loading Milestones...' : 'Manage Milestones'}
           </DialogTitle>
         </DialogHeader>
 
@@ -213,8 +313,8 @@ export function CreateMilestonesDialog({ offerId, trigger, onMilestonesCreated }
             <Button type="button" variant="outline" onClick={() => setOpen(false)} className="flex-1">
               Cancel
             </Button>
-            <Button type="submit" disabled={loading} className="flex-1">
-              {loading ? 'Creating...' : 'Create Milestones'}
+            <Button type="submit" disabled={loading || loadingExisting} className="flex-1">
+              {loading ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </form>

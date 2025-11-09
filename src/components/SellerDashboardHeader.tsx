@@ -62,6 +62,8 @@ export function SellerDashboardHeader() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const { unreadCount: unreadNotificationsCount, refetch: refetchNotifications } = useNotifications();
+  const refetchNotificationsRef = useRef(refetchNotifications);
+  useEffect(() => { refetchNotificationsRef.current = refetchNotifications; }, [refetchNotifications]);
 
   const fetchUnreadMessages = useCallback(async () => {
     if (!user?.id) {
@@ -83,21 +85,23 @@ export function SellerDashboardHeader() {
     }
   }, [user?.id]);
 
+  const fetchUnreadMessagesRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  useEffect(() => { fetchUnreadMessagesRef.current = fetchUnreadMessages; }, [fetchUnreadMessages]);
   useEffect(() => {
-    fetchUnreadMessages();
-  }, [fetchUnreadMessages]);
+    fetchUnreadMessagesRef.current();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!messagesOpen) {
-      fetchUnreadMessages();
+      fetchUnreadMessagesRef.current();
     }
-  }, [messagesOpen, fetchUnreadMessages]);
+  }, [messagesOpen]);
 
   useEffect(() => {
     if (!notificationsOpen) {
-      refetchNotifications();
+      refetchNotificationsRef.current?.();
     }
-  }, [notificationsOpen, refetchNotifications]);
+  }, [notificationsOpen]);
 
   const isSeller = user?.role === 'provider';
   const isBuyer = user?.role === 'client';
@@ -144,91 +148,17 @@ export function SellerDashboardHeader() {
               >
                 <Plus className="h-5 w-5" />
               </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                    <Avatar className="h-8 w-8">
-                      <img src={user?.avatar} alt={user?.name} />
-                    </Avatar>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{user?.name}</p>
-                      <p className="text-xs leading-none text-muted-foreground">
-                        {user?.email}
-                      </p>
-                      <div className="flex items-center space-x-2 mt-2">
-                        <Badge variant="secondary" className="text-xs">
-                          {isSeller ? 'Seller' : 'Buyer'}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          Premium Member
-                        </Badge>
-                      </div>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/user-profile')}>
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  {isBuyer && (
-                    <>
-                      <DropdownMenuItem onClick={() => navigate('/my-orders')}>
-                        <Package className="mr-2 h-4 w-4" />
-                        My Orders
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/payment-history')}>
-                        <DollarSign className="mr-2 h-4 w-4" />
-                        Payment History
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/saved-services')}>
-                        <BookOpen className="mr-2 h-4 w-4" />
-                        Saved Services
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                  {isSeller && (
-                    <>
-                      <DropdownMenuItem onClick={() => navigate('/seller/manage-orders')}>
-                        <Package className="mr-2 h-4 w-4" />
-                        Orders Received
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/seller/earnings')}>
-                        <DollarSign className="mr-2 h-4 w-4" />
-                        Earnings
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/seller/payment-methods')}>
-                        <CreditCard className="mr-2 h-4 w-4" />
-                        Payment Methods
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => navigate('/favorites')}>
-                        <Heart className="mr-2 h-4 w-4" />
-                        Saved Projects
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                  <DropdownMenuItem onClick={() => navigate('/account-settings')}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Account Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/payment-methods')}>
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Payment Methods
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate('/favorites')}>
-                    <Heart className="mr-2 h-4 w-4" />
-                    Favorites
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => logout()}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Log out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Temporary replacement for mobile dropdown to isolate render loop */}
+              <Button
+                variant="ghost"
+                className="relative h-8 w-8 rounded-full"
+                onClick={() => navigate('/user-profile')}
+                title={user?.email || 'Profile'}
+              >
+                <Avatar className="h-8 w-8">
+                  <img src={user?.avatar} alt={user?.name} />
+                </Avatar>
+              </Button>
             </div>
           </div>
         </div>

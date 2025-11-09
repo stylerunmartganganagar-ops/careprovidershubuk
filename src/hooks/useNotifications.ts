@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth.tsx';
 
@@ -19,7 +19,7 @@ export function useNotifications() {
   const [unreadCount, setUnreadCount] = useState(0);
   const { user } = useAuth();
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     if (!user?.id) return;
 
     try {
@@ -55,7 +55,7 @@ export function useNotifications() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
 
   const markAsRead = async (notificationId: string) => {
     try {

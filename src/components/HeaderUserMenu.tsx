@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { Button } from './ui/button';
@@ -39,6 +39,15 @@ export function HeaderUserMenu() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const { unreadCount: unreadNotificationsCount, refetch: refetchNotifications } = useNotifications();
+  
+  const hasInitializedRef = useRef(false);
+  const prevMessagesOpenRef = useRef(messagesOpen);
+  const prevNotificationsOpenRef = useRef(notificationsOpen);
+  // delay dropdown mount to avoid mount-time loops
+  const [menuMountReady, setMenuMountReady] = useState(false);
+  // keep stable references to callback functions to avoid effect retriggers on identity change
+  const refetchNotificationsRef = useRef(refetchNotifications);
+  const fetchUnreadMessagesRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   const fetchUnreadMessages = useCallback(async () => {
     if (!user?.id) {
@@ -60,24 +69,44 @@ export function HeaderUserMenu() {
     }
   }, [user?.id]);
 
+  // Keep latest function refs synced
   useEffect(() => {
-    fetchUnreadMessages();
+    refetchNotificationsRef.current = refetchNotifications;
+  }, [refetchNotifications]);
+  useEffect(() => {
+    fetchUnreadMessagesRef.current = fetchUnreadMessages;
   }, [fetchUnreadMessages]);
 
   useEffect(() => {
-    if (!messagesOpen) {
-      fetchUnreadMessages();
+    // allow dropdown to mount after first paint
+    setMenuMountReady(true);
+  }, []);
+
+  // Initial load only
+  useEffect(() => {
+    if (!hasInitializedRef.current && user?.id) {
+      hasInitializedRef.current = true;
+      fetchUnreadMessagesRef.current();
     }
-  }, [messagesOpen, fetchUnreadMessages]);
+  }, [user?.id]);
+
+  // Refetch when drawers close
+  useEffect(() => {
+    if (prevMessagesOpenRef.current && !messagesOpen) {
+      fetchUnreadMessagesRef.current();
+    }
+    prevMessagesOpenRef.current = messagesOpen;
+  }, [messagesOpen]);
 
   useEffect(() => {
-    if (!notificationsOpen) {
-      refetchNotifications();
+    if (prevNotificationsOpenRef.current && !notificationsOpen) {
+      refetchNotificationsRef.current?.();
     }
-  }, [notificationsOpen, refetchNotifications]);
+    prevNotificationsOpenRef.current = notificationsOpen;
+  }, [notificationsOpen]);
 
-  const isSeller = user?.role === 'provider';
-  const isBuyer = user?.role === 'client';
+  const isSeller = useMemo(() => user?.role === 'provider', [user?.role]);
+  const isBuyer = useMemo(() => user?.role === 'client', [user?.role]);
 
   return (
     <>
@@ -110,87 +139,17 @@ export function HeaderUserMenu() {
           <Heart className="h-5 w-5" />
         </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-              <Avatar className="h-8 w-8">
-                <img src={user?.avatar} alt={user?.name} />
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56" align="end" forceMount>
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{user?.name}</p>
-                <p className="text-xs leading-none text-muted-foreground">
-                  {user?.email}
-                </p>
-                <div className="flex items-center space-x-2 mt-2">
-                  <Badge variant="secondary" className="text-xs">
-                    {isSeller ? 'Seller' : 'Buyer'}
-                  </Badge>
-                  <Badge variant="outline" className="text-xs">
-                    Premium Member
-                  </Badge>
-                </div>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/user-profile')}>
-              <User className="mr-2 h-4 w-4" />
-              Profile
-            </DropdownMenuItem>
-            {isBuyer && (
-              <>
-                <DropdownMenuItem onClick={() => navigate('/my-orders')}>
-                  <Package className="mr-2 h-4 w-4" />
-                  My Orders
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/payment-history')}>
-                  <DollarSign className="mr-2 h-4 w-4" />
-                  Payment History
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/saved-services')}>
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  Saved Services
-                </DropdownMenuItem>
-              </>
-            )}
-            {isSeller && (
-              <>
-                <DropdownMenuItem onClick={() => navigate('/seller/manage-orders')}>
-                  <Package className="mr-2 h-4 w-4" />
-                  Orders Received
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/seller/earnings')}>
-                  <DollarSign className="mr-2 h-4 w-4" />
-                  Earnings
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate('/favorites')}>
-                  <Heart className="mr-2 h-4 w-4" />
-                  Saved Projects
-                </DropdownMenuItem>
-              </>
-            )}
-            <DropdownMenuItem onClick={() => navigate('/account-settings')}>
-              <Settings className="mr-2 h-4 w-4" />
-              Account Settings
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/payment-methods')}>
-              <CreditCard className="mr-2 h-4 w-4" />
-              Payment Methods
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate('/favorites')}>
-              <Heart className="mr-2 h-4 w-4" />
-              Favorites
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => logout()}>
-              <LogOut className="mr-2 h-4 w-4" />
-              Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Temporary replacement for DropdownMenu to isolate render loop */}
+        <Button
+          variant="ghost"
+          className="relative h-8 w-8 rounded-full"
+          onClick={() => navigate('/user-profile')}
+          title={user?.email || 'Profile'}
+        >
+          <Avatar className="h-8 w-8">
+            <img src={user?.avatar} alt={user?.name} />
+          </Avatar>
+        </Button>
       </div>
       <MessageDrawer open={messagesOpen} onOpenChange={setMessagesOpen} />
       <NotificationDrawer open={notificationsOpen} onOpenChange={setNotificationsOpen} />

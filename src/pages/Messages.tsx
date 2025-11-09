@@ -9,9 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { MessageSquare, Send, Users, ArrowLeft, RefreshCw } from 'lucide-react';
+import { MessageSquare, Send, Users, ArrowLeft, RefreshCw, Plus } from 'lucide-react';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
+import { CreateMilestonesDialog } from '../components/CreateMilestonesDialog';
+import { toast } from 'sonner';
 
 interface Message {
   id: string;
@@ -20,9 +22,10 @@ interface Message {
   content: string;
   created_at: string;
   attachments?: string[];
-  message_type?: string; // 'text' | 'order_start' | 'order_accept' | 'delivery'
+  message_type?: string; // 'text' | 'order_start' | 'order_accept' | 'milestone_created' | 'milestone_completed' | 'milestone_order_start' | 'milestone_order_accept'
   metadata?: any;
   is_read?: boolean;
+  milestone_order_id?: string;
 }
 
 interface MessageInsert {
@@ -32,6 +35,7 @@ interface MessageInsert {
   attachments?: string[];
   message_type?: string;
   metadata?: any;
+  milestone_order_id?: string;
 }
 
 interface ChatPartner {
@@ -58,11 +62,14 @@ export default function MessagesPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
-  const [recentlySentMessages, setRecentlySentMessages] = useState<Set<string>>(new Set());
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [attachments, setAttachments] = useState<string[]>([]);
   const [currentUserRole, setCurrentUserRole] = useState<'client' | 'provider' | 'admin' | null>(null);
+
+  // Accepted milestone order for milestone creation
+  const [acceptedMilestoneOrderId, setAcceptedMilestoneOrderId] = useState<string | null>(null);
+  const [milestones, setMilestones] = useState<any[]>([]);
 
   // Start Order dialog state
   const [showStartDialog, setShowStartDialog] = useState(false);
@@ -70,6 +77,18 @@ export default function MessagesPage() {
   const [orderPrice, setOrderPrice] = useState<number>(0);
   const [orderDeliveryDays, setOrderDeliveryDays] = useState<number>(3);
   const [orderRequirements, setOrderRequirements] = useState('');
+
+  // Start Milestone Order dialog state
+  const [showStartMilestoneDialog, setShowStartMilestoneDialog] = useState(false);
+  const [milestoneOrderTitle, setMilestoneOrderTitle] = useState('');
+  const [milestoneOrderTotalAmount, setMilestoneOrderTotalAmount] = useState<number>(0);
+  const [milestoneOrderRequirements, setMilestoneOrderRequirements] = useState('');
+  const [milestonesOrder, setMilestonesOrder] = useState<Array<{
+    title: string;
+    description: string;
+    amount: string;
+    due_date: string;
+  }>>([{ title: '', description: '', amount: '', due_date: '' }]);
 
   const { user } = useAuth();
   const { search } = useLocation();
@@ -79,6 +98,10 @@ export default function MessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backfilledIdsRef = useRef<Set<string>>(new Set());
+  const autoSelectedRef = useRef(false);
+  const userIdRef = useRef<string | null>(null);
+  const activeChatRef = useRef<string | null>(null);
 
   const markConversationAsRead = async (partnerId: string) => {
     if (!user?.id) return;
@@ -113,11 +136,60 @@ export default function MessagesPage() {
     }
   };
 
+  // Backfill any conversations with missing partner details (e.g., due to RLS on join)
+  useEffect(() => {
+    const missingIds = conversations
+      .filter(c => !c.partner.name || c.partner.name === 'Unknown User')
+      .map(c => c.partner.id)
+      .filter(id => !backfilledIdsRef.current.has(id)); // Only fetch IDs we haven't backfilled yet
+
+    if (missingIds.length === 0) return;
+
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('id,name,username,avatar,role')
+          .in('id', missingIds);
+        if (!data) return;
+
+        // Mark these IDs as backfilled
+        missingIds.forEach(id => backfilledIdsRef.current.add(id));
+
+        setConversations(prev => prev.map(c => {
+          const u = data.find(d => d.id === c.partner.id);
+          if (!u) return c;
+          return {
+            ...c,
+            partner: {
+              ...c.partner,
+              name: (u as any).name || (u as any).username || c.partner.name,
+              avatar: (u as any).avatar || c.partner.avatar,
+              role: (u as any).role || c.partner.role
+            }
+          };
+        }));
+        if (activeChat) {
+          const u = data.find(d => d.id === activeChat);
+          if (u) {
+            setPartnerInfo(p => p ? {
+              ...p,
+              name: (u as any).name || (u as any).username || p.name,
+              avatar: (u as any).avatar || p.avatar,
+              role: (u as any).role || p.role
+            } : p);
+          }
+        }
+      } catch {}
+    })();
+  }, [conversations.length, activeChat]);
+
   // Load conversations and set up real-time
   useEffect(() => {
     if (user?.id) {
+      userIdRef.current = user.id;
       loadConversations();
-      setupRealtime();
+      const channelCleanup = setupRealtime();
       // Load current user role for permissioned actions (e.g., Start Order by provider only)
       (async () => {
         try {
@@ -129,18 +201,21 @@ export default function MessagesPage() {
           if (!error && data) setCurrentUserRole((data as any).role as any);
         } catch {}
       })();
+
+      return () => {
+        if (channelCleanup) channelCleanup();
+      };
     }
   }, [user?.id]);
 
-  // When arriving with chatWith param, try to auto-select that chat
+  // When arriving with chatWith param, auto-select AFTER conversations are loaded
   useEffect(() => {
-    if (chatWith) {
+    if (chatWith && conversations.length > 0) {
       setShowChatList(false);
-      // use existing helper that sets active chat and loads data
       selectChat(chatWith);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatWith]);
+  }, [chatWith, conversations.length]);
 
   // Prevent body scrolling
   useEffect(() => {
@@ -148,16 +223,39 @@ export default function MessagesPage() {
     return () => { document.body.style.overflow = 'auto'; };
   }, []);
 
-  // Auto-select chat from URL
+  // Auto-select chat on load: priority -> URL param -> last selected -> first conversation
   useEffect(() => {
-    if (conversations.length > 0 && !activeChat) {
+    if (conversations.length > 0 && !activeChat && !autoSelectedRef.current) {
+      autoSelectedRef.current = true; // Mark as auto-selected to prevent re-runs
+
       if (chatWith) {
         selectChat(chatWith);
-      } else if (conversations.length === 1) {
+        return;
+      }
+
+      // Try restore last selected chat for this user
+      try {
+        const key = `last_chat_${user?.id}`;
+        const last = key ? localStorage.getItem(key) : null;
+        if (last) {
+          const exists = conversations.some(c => c.partner.id === last);
+          if (exists) {
+            selectChat(last);
+            return;
+          }
+        }
+      } catch {}
+
+      // Fallback: select the first conversation (most recent)
+      if (conversations[0]) {
         selectChat(conversations[0].partner.id);
       }
     }
-  }, [chatWith, conversations, activeChat]);
+  }, [chatWith, conversations, activeChat, user?.id]);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   // Scroll to bottom when switching chats
   useEffect(() => {
@@ -179,14 +277,39 @@ export default function MessagesPage() {
     }
   }, [user?.id, connectionStatus, lastRefresh]);
 
-  // Auto-scroll for new messages
+  // Load milestones when accepted milestone order changes
+  const [milestonesLoaded, setMilestonesLoaded] = useState(false);
   useEffect(() => {
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage && lastMessage.sender_id !== user?.id &&
-        Date.now() - new Date(lastMessage.created_at).getTime() < 5000) {
-      scrollToBottom();
-    }
-  }, [messages]);
+    const loadMilestones = async () => {
+      if (!acceptedMilestoneOrderId) {
+        setMilestones([]);
+        setMilestonesLoaded(false);
+        return;
+      }
+
+      // Prevent loading if already loaded for this order
+      if (milestonesLoaded && milestones.length > 0) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('milestones')
+          .select('*')
+          .eq('milestone_order_id', acceptedMilestoneOrderId)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        setMilestones(data || []);
+        setMilestonesLoaded(true);
+      } catch (error) {
+        console.error('Failed to load milestones', error);
+        setMilestones([]);
+        setMilestonesLoaded(false);
+      }
+    };
+
+    loadMilestones();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acceptedMilestoneOrderId]);
 
   const setupRealtime = () => {
     const channel = supabase
@@ -247,6 +370,7 @@ export default function MessagesPage() {
       if (!allMessages || allMessages.length === 0) {
         console.log('No messages found in database. User needs to start conversations first.');
         setConversations([]);
+        setLoading(false);
         return;
       }
 
@@ -294,104 +418,11 @@ export default function MessagesPage() {
 
       console.log('Created conversations:', conversationList.length);
       setConversations(conversationList);
-
+      setLoading(false);
     } catch (error) {
       console.error('Error loading conversations:', error);
       setConversations([]);
-    } finally {
       setLoading(false);
-    }
-  };
-
-  const sendOrderStart = async () => {
-    if (!user?.id || !activeChat) return;
-    if (currentUserRole !== 'provider') {
-      alert('Only providers can start an order');
-      return;
-    }
-    if (!orderTitle.trim() || orderPrice <= 0 || orderDeliveryDays <= 0) return;
-    const meta = {
-      title: orderTitle.trim(),
-      price: orderPrice,
-      delivery_days: orderDeliveryDays,
-      requirements: orderRequirements.trim() || null,
-    };
-
-    const messageData: MessageInsert = {
-      sender_id: user.id,
-      receiver_id: activeChat,
-      content: `Order proposal: ${meta.title} - £${meta.price} in ${meta.delivery_days} day(s)`,
-      message_type: 'order_start',
-      metadata: meta,
-    };
-
-    try {
-      const { data, error } = await (supabase.from('messages') as any)
-        .insert(messageData as any)
-        .select()
-        .single();
-      if (error) throw error;
-      if (data) {
-        handleNewMessage(data as Message);
-        // create pending order linked to this proposal
-        // Start Order is provider-only: current user is provider, partner is buyer
-        const buyer_id = activeChat;
-        const provider_id = user.id;
-        const deliveryDate = new Date();
-        deliveryDate.setDate(deliveryDate.getDate() + (meta.delivery_days || 0));
-        await (supabase.from('orders') as any).insert({
-          buyer_id,
-          provider_id,
-          service_id: null,
-          title: meta.title,
-          description: meta.requirements,
-          price: meta.price,
-          status: 'pending',
-          delivery_date: deliveryDate.toISOString(),
-          completed_at: null,
-          proposal_message_id: (data as any).id,
-        });
-      }
-      setShowStartDialog(false);
-      setOrderTitle('');
-      setOrderPrice(0);
-      setOrderDeliveryDays(3);
-      setOrderRequirements('');
-    } catch (e) {
-      console.error('Failed to start order', e);
-    }
-  };
-
-  const acceptOrder = async (proposalMessage: Message) => {
-    if (!user?.id || !activeChat) return;
-    // Only receiver can accept
-    if (proposalMessage.receiver_id !== user.id) return;
-    // Guard: already accepted?
-    const alreadyAccepted = messages.some(m => m.message_type === 'order_accept' && m.metadata?.proposal_id === proposalMessage.id);
-    if (alreadyAccepted) return;
-    const messageData: MessageInsert = {
-      sender_id: user.id,
-      receiver_id: activeChat,
-      content: 'Order accepted ✅',
-      message_type: 'order_accept',
-      metadata: { proposal_id: proposalMessage.id },
-    };
-    try {
-      const { data, error } = await (supabase.from('messages') as any)
-        .insert(messageData as any)
-        .select()
-        .single();
-      if (error) throw error;
-      if (data) {
-        handleNewMessage(data as Message);
-        // update linked pending order to in_progress
-        const proposalId = proposalMessage.id;
-        await (supabase.from('orders') as any)
-          .update({ status: 'in_progress' })
-          .eq('proposal_message_id', proposalId);
-      }
-    } catch (e) {
-      console.error('Failed to accept order', e);
     }
   };
 
@@ -412,6 +443,20 @@ export default function MessagesPage() {
         setAttachments([]);
       }
       await markConversationAsRead(partnerId);
+
+      // Find accepted milestone order in messages
+      const acceptedMilestoneOrderMessage = conversation.messages.find(msg =>
+        msg.message_type === 'milestone_order_accept' && msg.metadata?.proposal_id
+      );
+
+      if (acceptedMilestoneOrderMessage) {
+        // Get the milestone order ID from the message
+        setAcceptedMilestoneOrderId(acceptedMilestoneOrderMessage.milestone_order_id || null);
+        setMilestonesLoaded(false); // Reset to force reload
+      } else {
+        setAcceptedMilestoneOrderId(null);
+        setMilestonesLoaded(false);
+      }
     } else {
       // Load messages for new conversation
       const { data: chatMessages } = await supabase
@@ -428,8 +473,43 @@ export default function MessagesPage() {
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
         role: 'user'
       });
+
+      // Try to hydrate partner info if conversations aren't ready yet
+      try {
+        const { data: partner } = await supabase
+          .from('users')
+          .select('id,name,username,avatar,role')
+          .eq('id', partnerId)
+          .single();
+        if (partner) {
+          setPartnerInfo({
+            id: partner.id,
+            name: partner.name || partner.username || 'User',
+            avatar: partner.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
+            role: (partner as any).role || 'user'
+          });
+        }
+      } catch {}
       await markConversationAsRead(partnerId);
+
+      // Find accepted milestone order in loaded messages
+      const acceptedMilestoneOrderMessage = messagesToShow.find(msg =>
+        msg.message_type === 'milestone_order_accept' && msg.metadata?.proposal_id
+      );
+
+      if (acceptedMilestoneOrderMessage) {
+        setAcceptedMilestoneOrderId(acceptedMilestoneOrderMessage.milestone_order_id || null);
+        setMilestonesLoaded(false);
+      } else {
+        setAcceptedMilestoneOrderId(null);
+        setMilestonesLoaded(false);
+      }
     }
+
+    // persist selection per user so it survives refresh
+    try {
+      if (user?.id) localStorage.setItem(`last_chat_${user.id}`, partnerId);
+    } catch {}
 
     setActiveChat(partnerId);
     setShowChatList(false);
@@ -438,38 +518,80 @@ export default function MessagesPage() {
   };
 
   const handleNewMessage = (newMessage: Message) => {
-    if (recentlySentMessages.has(newMessage.id)) return;
+    const currentUserId = userIdRef.current;
+    const currentActiveChat = activeChatRef.current;
 
-    if (messages.some(msg => msg.id === newMessage.id)) return;
+    if (!currentUserId) return;
 
-    // Add to active chat
-    if ((newMessage.sender_id === user?.id && newMessage.receiver_id === activeChat) ||
-        (newMessage.sender_id === activeChat && newMessage.receiver_id === user?.id)) {
-      setMessages(prev => [...prev, newMessage]);
-      if (newMessage.sender_id === activeChat && newMessage.receiver_id === user?.id) {
+    const isActiveChatMessage =
+      (newMessage.sender_id === currentUserId && newMessage.receiver_id === currentActiveChat) ||
+      (newMessage.sender_id === currentActiveChat && newMessage.receiver_id === currentUserId);
+
+    if (isActiveChatMessage) {
+      setMessages(prev => {
+        if (prev.some(msg => msg.id === newMessage.id)) {
+          return prev;
+        }
+        return [...prev, newMessage];
+      });
+
+      scrollToBottom();
+
+      if (newMessage.sender_id === currentActiveChat && newMessage.receiver_id === currentUserId) {
         markConversationAsRead(newMessage.sender_id);
       }
     }
 
-    // Update conversation cache
-    setConversations(prev => prev.map(conv => {
-      const isRelevant = conv.partner.id === newMessage.sender_id || conv.partner.id === newMessage.receiver_id;
-      if (!isRelevant) return conv;
-
-      const shouldMarkNew = newMessage.sender_id !== user?.id && conv.partner.id !== activeChat;
-
-      return {
-        ...conv,
-        messages: [...conv.messages, newMessage],
-        lastActivity: newMessage.created_at,
-        hasNewMessage: shouldMarkNew || conv.hasNewMessage,
-        partner: {
-          ...conv.partner,
-          lastMessage: newMessage.content,
-          lastMessageTime: newMessage.created_at
+    setConversations(prev => {
+      let conversationMatched = false;
+      const updated = prev.map(conv => {
+        const isRelevant = conv.partner.id === newMessage.sender_id || conv.partner.id === newMessage.receiver_id;
+        if (!isRelevant) {
+          return conv;
         }
-      };
-    }).sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime()));
+
+        conversationMatched = true;
+
+        const shouldMarkNew = newMessage.sender_id !== currentUserId && conv.partner.id !== currentActiveChat;
+        const alreadyHasMessage = conv.messages.some(msg => msg.id === newMessage.id);
+
+        return {
+          ...conv,
+          messages: alreadyHasMessage ? conv.messages : [...conv.messages, newMessage],
+          lastActivity: newMessage.created_at,
+          hasNewMessage: shouldMarkNew || conv.hasNewMessage,
+          partner: {
+            ...conv.partner,
+            lastMessage: newMessage.content,
+            lastMessageTime: newMessage.created_at,
+          },
+        };
+      });
+
+      if (!conversationMatched) {
+        const partnerId = newMessage.sender_id === currentUserId ? newMessage.receiver_id : newMessage.sender_id;
+        const isIncoming = newMessage.sender_id !== currentUserId;
+
+        return [
+          ...updated,
+          {
+            partner: {
+              id: partnerId,
+              name: 'Unknown User',
+              avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
+              role: 'user',
+              lastMessage: newMessage.content,
+              lastMessageTime: newMessage.created_at,
+            },
+            messages: [newMessage],
+            lastActivity: newMessage.created_at,
+            hasNewMessage: isIncoming,
+          },
+        ].sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
+      }
+
+      return updated.sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
+    });
   };
 
   const sendMessage = async () => {
@@ -504,7 +626,6 @@ export default function MessagesPage() {
 
       if (data) {
         const insertedMessage = data as Message;
-        setRecentlySentMessages(prev => new Set(prev).add(insertedMessage.id));
         setMessages(prev => prev.map(msg =>
           msg.id === optimisticMessage.id ? insertedMessage : msg
         ));
@@ -520,13 +641,6 @@ export default function MessagesPage() {
           });
         }
 
-        setTimeout(() => {
-          setRecentlySentMessages(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(insertedMessage.id);
-            return newSet;
-          });
-        }, 5000);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -541,11 +655,332 @@ export default function MessagesPage() {
     if (activeChat) await selectChat(activeChat);
   };
 
-  const scrollToBottom = () => {
-    if (messagesContainerRef.current) {
-      setTimeout(() => {
-        messagesContainerRef.current!.scrollTop = messagesContainerRef.current!.scrollHeight;
-      }, 100);
+  const completeMilestone = async (milestoneId: string) => {
+    if (!user?.id || !acceptedMilestoneOrderId) return;
+
+    try {
+      // Update milestone status to completed
+      const { error: updateError } = await supabase
+        .from('milestones')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', milestoneId)
+        .eq('seller_id', user.id); // Ensure only seller can complete
+
+      if (updateError) throw updateError;
+
+      // Send milestone completed message
+      const messageData: MessageInsert = {
+        sender_id: user.id,
+        receiver_id: activeChat!,
+        content: 'Milestone completed and payment processed',
+        message_type: 'milestone_completed',
+        milestone_order_id: acceptedMilestoneOrderId,
+        metadata: { milestone_id: milestoneId }
+      };
+
+      await supabase.from('messages').insert(messageData);
+
+      // Here you would typically trigger payment processing
+      // For now, just mark as paid
+      await supabase
+        .from('milestones')
+        .update({
+          payment_status: 'paid',
+          paid_at: new Date().toISOString()
+        })
+        .eq('id', milestoneId);
+
+      // Update milestone order payment status
+      const { data: allMilestones } = await supabase
+        .from('milestones')
+        .select('payment_status, amount')
+        .eq('milestone_order_id', acceptedMilestoneOrderId);
+
+      if (allMilestones) {
+        const totalPaid = allMilestones
+          .filter(m => m.payment_status === 'paid')
+          .reduce((sum, m) => sum + m.amount, 0);
+
+        const allCompleted = allMilestones.every(m => m.payment_status === 'paid');
+
+        await supabase
+          .from('milestone_orders')
+          .update({
+            paid_amount: totalPaid,
+            payment_status: allCompleted ? 'paid' : 'partially_paid',
+            status: allCompleted ? 'completed' : 'in_progress',
+            completed_at: allCompleted ? new Date().toISOString() : null
+          })
+          .eq('id', acceptedMilestoneOrderId);
+      }
+
+      toast.success('Milestone completed successfully!');
+    } catch (error) {
+      console.error('Failed to complete milestone', error);
+      toast.error('Failed to complete milestone');
+    }
+  };
+
+  const sendOrderStart = async () => {
+    if (!user?.id || !activeChat) return;
+    if (currentUserRole !== 'provider') {
+      alert('Only providers can start orders');
+      return;
+    }
+    if (!orderTitle.trim() || orderPrice <= 0 || orderDeliveryDays <= 0) return;
+
+    const meta = {
+      title: orderTitle.trim(),
+      price: orderPrice,
+      delivery_days: orderDeliveryDays,
+      requirements: orderRequirements.trim() || null,
+    };
+
+    try {
+      // First create the order
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          buyer_id: activeChat, // partner is buyer
+          provider_id: user.id, // current user is provider
+          service_id: null,
+          title: meta.title,
+          description: meta.requirements,
+          price: meta.price,
+          status: 'pending',
+          delivery_date: new Date(Date.now() + meta.delivery_days * 24 * 60 * 60 * 1000).toISOString(),
+          completed_at: null,
+        })
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Failed to create order', orderError);
+        alert('Failed to create order');
+        return;
+      }
+
+      // Then send the message
+      const messageData: MessageInsert = {
+        sender_id: user.id,
+        receiver_id: activeChat,
+        content: `Order proposal: ${meta.title} - £${meta.price} (${meta.delivery_days} days)`,
+        message_type: 'order_start',
+        metadata: meta,
+      };
+
+      const { data, error } = await (supabase.from('messages') as any)
+        .insert(messageData as any)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        handleNewMessage(data as Message);
+      }
+      setShowStartDialog(false);
+      setOrderTitle('');
+      setOrderPrice(0);
+      setOrderDeliveryDays(3);
+      setOrderRequirements('');
+      alert('Order proposal sent!');
+    } catch (e) {
+      console.error('Failed to start order', e);
+      alert('Failed to send order proposal');
+    }
+  };
+
+  const acceptOrder = async (proposalMessage: Message) => {
+    if (!user?.id || !activeChat) return;
+
+    const messageData: MessageInsert = {
+      sender_id: user.id,
+      receiver_id: activeChat,
+      content: 'Order accepted ✅',
+      message_type: 'order_accept',
+      metadata: { proposal_id: proposalMessage.id },
+    };
+    try {
+      const { data, error } = await (supabase.from('messages') as any)
+        .insert(messageData as any)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        handleNewMessage(data as Message);
+        // update linked pending order to in_progress
+        const proposalId = proposalMessage.id;
+        await (supabase.from('orders') as any)
+          .update({ status: 'in_progress' })
+          .eq('proposal_message_id', proposalId);
+      }
+    } catch (e) {
+      console.error('Failed to accept order', e);
+    }
+  };
+
+  const acceptMilestoneOrder = async (proposalMessage: Message) => {
+    if (!user?.id || !activeChat) return;
+
+    const messageData: MessageInsert = {
+      sender_id: user.id,
+      receiver_id: activeChat,
+      content: 'Milestone order accepted ✅',
+      message_type: 'milestone_order_accept',
+      milestone_order_id: proposalMessage.milestone_order_id,
+      metadata: { proposal_id: proposalMessage.id },
+    };
+    try {
+      const { data, error } = await (supabase.from('messages') as any)
+        .insert(messageData as any)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        handleNewMessage(data as Message);
+        // update linked pending milestone order to in_progress
+        const orderId = proposalMessage.milestone_order_id;
+        await (supabase.from('milestone_orders') as any)
+          .update({ status: 'in_progress' })
+          .eq('id', orderId);
+      }
+    } catch (e) {
+      console.error('Failed to accept milestone order', e);
+    }
+  };
+
+  const addMilestone = () => {
+    setMilestonesOrder(prev => [...prev, { title: '', description: '', amount: '', due_date: '' }]);
+  };
+
+  const removeMilestone = (index: number) => {
+    setMilestonesOrder(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updateMilestone = (index: number, field: keyof typeof milestonesOrder[0], value: string) => {
+    setMilestonesOrder(prev => prev.map((milestone, i) =>
+      i === index ? { ...milestone, [field]: value } : milestone
+    ));
+  };
+
+  const sendMilestoneOrderStart = async () => {
+    if (!user?.id || !activeChat) return;
+    if (currentUserRole !== 'provider') {
+      alert('Only providers can start milestone orders');
+      return;
+    }
+    if (!milestoneOrderTitle.trim() || milestoneOrderTotalAmount <= 0) return;
+
+    // Validate milestones
+    const validMilestones = milestonesOrder.filter(m => m.title.trim() && m.description.trim() && m.amount && m.due_date);
+    if (validMilestones.length === 0) {
+      alert('Please add at least one milestone');
+      return;
+    }
+
+    // Validate milestone amounts and due dates
+    let totalMilestoneAmount = 0;
+    for (const milestone of validMilestones) {
+      const amount = parseFloat(milestone.amount);
+      if (isNaN(amount) || amount <= 0) {
+        alert('Please enter valid amounts for all milestones');
+        return;
+      }
+      totalMilestoneAmount += amount;
+
+      const dueDate = new Date(milestone.due_date);
+      if (dueDate <= new Date()) {
+        alert('All milestone due dates must be in the future');
+        return;
+      }
+    }
+
+    if (totalMilestoneAmount > milestoneOrderTotalAmount) {
+      alert(`Total milestone amounts (£${totalMilestoneAmount}) cannot exceed order total (£${milestoneOrderTotalAmount})`);
+      return;
+    }
+
+    const meta = {
+      title: milestoneOrderTitle.trim(),
+      total_amount: milestoneOrderTotalAmount,
+      requirements: milestoneOrderRequirements.trim() || null,
+      milestone_count: validMilestones.length,
+    };
+
+    try {
+      // First create the milestone order
+      const { data: milestoneOrder, error: orderError } = await supabase
+        .from('milestone_orders')
+        .insert({
+          buyer_id: activeChat, // partner is buyer
+          provider_id: user.id, // current user is provider
+          title: meta.title,
+          description: meta.requirements,
+          total_amount: meta.total_amount,
+          currency: 'GBP',
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Failed to create milestone order', orderError);
+        alert('Failed to create milestone order');
+        return;
+      }
+
+      // Create the milestones
+      const milestonesData = validMilestones.map(milestone => ({
+        milestone_order_id: milestoneOrder.id,
+        seller_id: user.id,
+        buyer_id: activeChat,
+        title: milestone.title.trim(),
+        description: milestone.description.trim(),
+        amount: parseFloat(milestone.amount),
+        currency: 'GBP',
+        due_date: new Date(milestone.due_date).toISOString(),
+        status: 'pending'
+      }));
+
+      const { error: milestonesError } = await supabase
+        .from('milestones')
+        .insert(milestonesData);
+
+      if (milestonesError) {
+        console.error('Failed to create milestones', milestonesError);
+        alert('Failed to create milestones');
+        return;
+      }
+
+      // Then send the message
+      const messageData: MessageInsert = {
+        sender_id: user.id,
+        receiver_id: activeChat,
+        content: `Milestone order proposal: ${meta.title} - ${validMilestones.length} milestone(s) totaling £${totalMilestoneAmount.toFixed(2)}`,
+        message_type: 'milestone_order_start',
+        milestone_order_id: milestoneOrder.id,
+        metadata: meta,
+      };
+
+      const { data, error } = await (supabase.from('messages') as any)
+        .insert(messageData as any)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        handleNewMessage(data as Message);
+      }
+      setShowStartMilestoneDialog(false);
+      setMilestoneOrderTitle('');
+      setMilestoneOrderTotalAmount(0);
+      setMilestoneOrderRequirements('');
+      setMilestonesOrder([{ title: '', description: '', amount: '', due_date: '' }]);
+      alert(`Milestone order proposal sent with ${validMilestones.length} milestone(s)!`);
+    } catch (e) {
+      console.error('Failed to start milestone order', e);
+      alert('Failed to send milestone order proposal');
     }
   };
 
@@ -562,6 +997,14 @@ export default function MessagesPage() {
     partnerInfo?.name ||
     conversations.find(conv => conv.partner.id === activeChat)?.partner.name ||
     'Chat';
+
+  const scrollToBottom = () => {
+    if (messagesContainerRef.current) {
+      setTimeout(() => {
+        messagesContainerRef.current!.scrollTop = messagesContainerRef.current!.scrollHeight;
+      }, 100);
+    }
+  };
 
   if (loading) {
     return (
@@ -736,6 +1179,29 @@ export default function MessagesPage() {
                               </>
                             )}
 
+                            {message.message_type === 'milestone_order_start' && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={message.sender_id === user?.id ? 'secondary' : 'default'}>Milestone Order Proposal</Badge>
+                                  <span className="text-xs opacity-80">{new Date(message.created_at).toLocaleString()}</span>
+                                </div>
+                                <div className="text-sm">
+                                  <div className="font-medium">{message.metadata?.title}</div>
+                                  <div>Total Amount: £{message.metadata?.total_amount}</div>
+                                  {message.metadata?.requirements && (
+                                    <div className="mt-1 text-xs opacity-90 whitespace-pre-wrap">Req: {message.metadata?.requirements}</div>
+                                  )}
+                                </div>
+                                {message.receiver_id === user?.id && (
+                                  <div className="pt-1">
+                                    <Button size="sm" variant="secondary" onClick={() => acceptMilestoneOrder(message)}>
+                                      Accept Milestone Order
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             {message.message_type === 'order_start' && (
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2">
@@ -766,10 +1232,28 @@ export default function MessagesPage() {
                               </div>
                             )}
 
-                            {message.message_type === 'order_accept' && (
+                            {message.message_type === 'milestone_order_accept' && (
                               <div className="space-y-1">
-                                <Badge variant="default">Order Accepted</Badge>
-                                <div className="text-sm">The order has been accepted and can proceed.</div>
+                                <Badge variant="default">Milestone Order Accepted</Badge>
+                                <div className="text-sm">The milestone order has been accepted and can proceed.</div>
+                              </div>
+                            )}
+
+                            {message.message_type === 'milestone_created' && (
+                              <div className="space-y-1">
+                                <Badge variant="default">Milestones Created</Badge>
+                                <div className="text-sm">
+                                  {message.metadata?.milestone_count} milestone(s) created totaling £{message.metadata?.total_amount?.toFixed(2)}
+                                </div>
+                              </div>
+                            )}
+
+                            {message.message_type === 'milestone_completed' && (
+                              <div className="space-y-1">
+                                <Badge variant="default">Milestone Completed</Badge>
+                                <div className="text-sm">
+                                  A milestone has been marked as completed and payment has been processed.
+                                </div>
                               </div>
                             )}
 
@@ -785,6 +1269,39 @@ export default function MessagesPage() {
                     </>
                   )}
                 </div>
+
+                {/* Milestones Section */}
+                {acceptedMilestoneOrderId && milestones.length > 0 && (
+                  <div className="flex-shrink-0 p-4 border-t bg-gray-50">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h3 className="font-medium text-sm">Order Milestones</h3>
+                      <Badge variant="outline">{milestones.length} milestone(s)</Badge>
+                    </div>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {milestones.map((milestone) => (
+                        <div key={milestone.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">{milestone.title}</div>
+                            <div className="text-xs text-gray-600">£{milestone.amount} • Due: {new Date(milestone.due_date).toLocaleDateString()}</div>
+                            <Badge variant={milestone.status === 'completed' ? 'default' : 'secondary'} className="text-xs mt-1">
+                              {milestone.status}
+                            </Badge>
+                          </div>
+                          {currentUserRole === 'provider' && milestone.status !== 'completed' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => completeMilestone(milestone.id)}
+                              className="ml-2"
+                            >
+                              Complete
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Message Input with Attachments and Start Order */}
                 <div className="flex-shrink-0 p-4 border-t bg-white space-y-3">
@@ -884,6 +1401,135 @@ export default function MessagesPage() {
                         }}
                       />
                       <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Upload Image</Button>
+                      {currentUserRole === 'provider' && acceptedMilestoneOrderId && (
+                        <CreateMilestonesDialog
+                          milestoneOrderId={acceptedMilestoneOrderId}
+                          trigger={<Button variant="outline" size="sm">Manage Milestones</Button>}
+                        />
+                      )}
+                      {currentUserRole === 'provider' && (
+                        <Dialog open={showStartMilestoneDialog} onOpenChange={setShowStartMilestoneDialog}>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="sm">Start Milestone Order</Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+                            <DialogHeader>
+                              <DialogTitle>Start Milestone Order</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-6">
+                              {/* Order Details */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                  <Label>Title</Label>
+                                  <Input value={milestoneOrderTitle} onChange={e => setMilestoneOrderTitle(e.target.value)} placeholder="e.g. Website Development Project" />
+                                </div>
+                                <div>
+                                  <Label>Total Amount (£)</Label>
+                                  <Input type="number" min={1} value={milestoneOrderTotalAmount} onChange={e => setMilestoneOrderTotalAmount(Number(e.target.value))} />
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <Label>Requirements (optional)</Label>
+                                <Textarea rows={3} value={milestoneOrderRequirements} onChange={e => setMilestoneOrderRequirements(e.target.value)} placeholder="Describe the project requirements" />
+                              </div>
+
+                              {/* Milestones Section */}
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-base font-medium">Milestones</Label>
+                                  <Button type="button" variant="outline" size="sm" onClick={addMilestone}>
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Add Milestone
+                                  </Button>
+                                </div>
+
+                                <div className="space-y-3">
+                                  {milestonesOrder.map((milestone, index) => (
+                                    <div key={index} className="p-4 border rounded-lg space-y-3 bg-gray-50">
+                                      <div className="flex items-center justify-between">
+                                        <h4 className="font-medium">Milestone {index + 1}</h4>
+                                        {milestonesOrder.length > 1 && (
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => removeMilestone(index)}
+                                          >
+                                            Remove
+                                          </Button>
+                                        )}
+                                      </div>
+
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                          <Label htmlFor={`milestone-title-${index}`}>Title</Label>
+                                          <Input
+                                            id={`milestone-title-${index}`}
+                                            value={milestone.title}
+                                            onChange={(e) => updateMilestone(index, 'title', e.target.value)}
+                                            placeholder="e.g., Initial Assessment"
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <Label htmlFor={`milestone-amount-${index}`}>Amount (£)</Label>
+                                          <Input
+                                            id={`milestone-amount-${index}`}
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={milestone.amount}
+                                            onChange={(e) => updateMilestone(index, 'amount', e.target.value)}
+                                            placeholder="0.00"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div>
+                                        <Label htmlFor={`milestone-description-${index}`}>Description</Label>
+                                        <Textarea
+                                          id={`milestone-description-${index}`}
+                                          value={milestone.description}
+                                          onChange={(e) => updateMilestone(index, 'description', e.target.value)}
+                                          placeholder="Describe what will be delivered in this milestone..."
+                                          rows={2}
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <Label htmlFor={`milestone-due-date-${index}`}>Due Date</Label>
+                                        <Input
+                                          id={`milestone-due-date-${index}`}
+                                          type="date"
+                                          value={milestone.due_date}
+                                          onChange={(e) => updateMilestone(index, 'due_date', e.target.value)}
+                                          min={new Date().toISOString().split('T')[0]}
+                                        />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Total validation */}
+                                {milestonesOrder.filter(m => m.amount).length > 0 && (
+                                  <div className="text-sm text-gray-600">
+                                    Total milestone amounts: £{milestonesOrder.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0).toFixed(2)} / £{milestoneOrderTotalAmount}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex justify-end gap-2">
+                                <Button type="button" variant="outline" onClick={() => setShowStartMilestoneDialog(false)}>
+                                  Cancel
+                                </Button>
+                                <Button onClick={sendMilestoneOrderStart} disabled={!milestoneOrderTitle.trim() || milestoneOrderTotalAmount <= 0}>
+                                  Send Proposal
+                                </Button>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      )}
                       {currentUserRole === 'provider' && (
                         <Dialog open={showStartDialog} onOpenChange={setShowStartDialog}>
                           <DialogTrigger asChild>
