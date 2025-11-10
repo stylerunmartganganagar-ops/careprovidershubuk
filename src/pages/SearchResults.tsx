@@ -26,8 +26,13 @@ import { useAvailableProjects } from '../hooks/useProjects';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
 
+interface ServiceCardProps {
+  service: any;
+  wrapperClassName?: string;
+}
+
 // ServiceCard component - simplified to use provider data directly
-const ServiceCard = ({ service }: { service: any }) => {
+const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ServiceCardProps) => {
   // Debug: Log what we receive
   console.log('ServiceCard received service:', {
     id: service.id,
@@ -42,161 +47,170 @@ const ServiceCard = ({ service }: { service: any }) => {
   console.log(`ServiceCard ${service.id}: Using username "${displayUsername}" from provider data`);
 
   return (
-    <Link to={`/service/${service.id}`} className="block">
-      <Card className="hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer">
-        {/* Large Service Image - FIRST GIG IMAGE AS TITLE */}
-        <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
-          {service.images && service.images.length > 0 ? (
-            <img
-              src={service.images[0]} // FIRST GIG IMAGE
-              alt={service.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=default';
-              }}
-            />
-          ) : (
-            // Fallback when no images
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
-              <div className="text-center text-gray-500">
-                <div className="text-4xl mb-2">📷</div>
-                <div className="text-sm">No image available</div>
+    <div className={wrapperClassName}>
+      <Link to={`/service/${service.id}`} className="block h-full">
+        <Card className="h-full hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer">
+          {/* Large Service Image - FIRST GIG IMAGE AS TITLE */}
+          <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
+            {service.images && service.images.length > 0 ? (
+              <img
+                src={service.images[0]} // FIRST GIG IMAGE
+                alt={service.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=default';
+                }}
+              />
+            ) : (
+              // Fallback when no images
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
+                <div className="text-center text-gray-500">
+                  <div className="text-4xl mb-2">📷</div>
+                  <div className="text-sm">No image available</div>
+                </div>
               </div>
+            )}
+
+            {/* Overlay gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+            {/* Price badge on image */}
+            <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-1 shadow-lg">
+              <div className="text-lg font-bold text-gray-900">
+                £{service.price}
+              </div>
+              <div className="text-xs text-gray-600">Starting at</div>
             </div>
-          )}
 
-          {/* Overlay gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-          {/* Price badge on image */}
-          <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-1 shadow-lg">
-            <div className="text-lg font-bold text-gray-900">
-              £{service.price}
-            </div>
-            <div className="text-xs text-gray-600">Starting at</div>
-          </div>
-
-          {/* Image count indicator */}
-          {service.images && service.images.length > 1 && (
-            <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1">
-              <span className="text-xs text-white font-medium">
-                📸 {service.images.length}
-              </span>
-            </div>
-          )}
-        </div>
-
-        <CardContent className="p-4">
-          {/* Username and Rating */}
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center">
-                <span className="text-xs font-semibold text-gray-600">
-                  {displayUsername.charAt(0).toUpperCase()}
+            {/* Image count indicator */}
+            {service.images && service.images.length > 1 && (
+              <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1">
+                <span className="text-xs text-white font-medium">
+                  📸 {service.images.length}
                 </span>
               </div>
-              <span className="text-sm font-medium text-gray-700 truncate">
-                {displayUsername}
-              </span>
-            </div>
-
-            {/* Rating */}
-            <div className="flex items-center space-x-1">
-              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-              <span className="text-xs font-medium text-gray-700">
-                {(service.provider?.rating || 0).toFixed(1)}
-              </span>
-              <span className="text-xs text-gray-500">
-                ({service.provider?.review_count || 0})
-              </span>
-            </div>
+            )}
           </div>
 
-          {/* Service Title */}
-          <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
-            {service.title}
-          </h3>
+          <CardContent className="p-4">
+            {/* Username and Rating */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center">
+                  <span className="text-xs font-semibold text-gray-600">
+                    {displayUsername.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-sm font-medium text-gray-700 truncate">
+                  {displayUsername}
+                </span>
+              </div>
 
-          {/* Service Description Preview - REMOVED as per user request */}
-
-          {/* Tags/Badges */}
-          <div className="flex items-center justify-between">
-            <div className="flex flex-wrap gap-1">
-              {service.tags && service.tags.slice(0, 2).map((tag: string, index: number) => (
-                <Badge key={index} variant="secondary" className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 hover:bg-gray-200">
-                  {tag}
-                </Badge>
-              ))}
-              {service.is_active && (
-                <Badge variant="outline" className="text-xs px-2 py-0.5 border-green-200 text-green-700">
-                  Active
-                </Badge>
-              )}
+              {/* Rating */}
+              <div className="flex items-center space-x-1">
+                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                <span className="text-xs font-medium text-gray-700">
+                  {(service.provider?.rating || 0).toFixed(1)}
+                </span>
+                <span className="text-xs text-gray-500">
+                  ({service.provider?.review_count || 0})
+                </span>
+              </div>
             </div>
 
-            {/* Delivery time */}
-            <div className="flex items-center text-xs text-gray-500">
-              <Clock className="h-3 w-3 mr-1" />
-              <span>{service.delivery_time}</span>
+            {/* Service Title */}
+            <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
+              {service.title}
+            </h3>
+
+            {/* Service Description Preview - REMOVED as per user request */}
+
+            {/* Tags/Badges */}
+            <div className="flex items-center justify-between">
+              <div className="flex flex-wrap gap-1">
+                {service.tags && service.tags.slice(0, 2).map((tag: string, index: number) => (
+                  <Badge key={index} variant="secondary" className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 hover:bg-gray-200">
+                    {tag}
+                  </Badge>
+                ))}
+                {service.is_active && (
+                  <Badge variant="outline" className="text-xs px-2 py-0.5 border-green-200 text-green-700">
+                    Active
+                  </Badge>
+                )}
+              </div>
+
+              {/* Delivery time */}
+              <div className="flex items-center text-xs text-gray-500">
+                <Clock className="h-3 w-3 mr-1" />
+                <span>{service.delivery_time}</span>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
+          </CardContent>
+        </Card>
+      </Link>
+    </div>
   );
 };
 
 // ProjectCard component for sellers
-const ProjectCard = ({ project }: { project: any }) => {
+interface ProjectCardProps {
+  project: any;
+  wrapperClassName?: string;
+}
+
+const ProjectCard = ({ project, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ProjectCardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardHeader className="pb-3">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-          <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
-          <Badge className="bg-green-100 text-green-800 text-xs self-start sm:self-auto flex-shrink-0">
-            Open
-          </Badge>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 mt-2">
-          <Badge variant="outline" className="text-xs">{project.category}</Badge>
-          <Badge
-            variant={
-              project.urgency === 'high' ? 'destructive' :
-              project.urgency === 'medium' ? 'default' : 'secondary'
-            }
-            className="text-xs"
+    <div className={wrapperClassName}>
+      <Card className="h-full hover:shadow-md transition-shadow">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+            <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+            <Badge className="bg-green-100 text-green-800 text-xs self-start sm:self-auto flex-shrink-0">
+              Open
+            </Badge>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <Badge variant="outline" className="text-xs">{project.category}</Badge>
+            <Badge
+              variant={
+                project.urgency === 'high' ? 'destructive' :
+                project.urgency === 'medium' ? 'default' : 'secondary'
+              }
+              className="text-xs"
+            >
+              {project.urgency}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <p className="text-gray-600 text-sm line-clamp-2 mb-3">
+            {project.description}
+          </p>
+          <div className="space-y-2 mb-4">
+            <div className="flex justify-between text-sm">
+              <span className="font-semibold text-green-600">£{project.budget}</span>
+              <span className="text-gray-500">{project.budget_type}</span>
+            </div>
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>{project.location}</span>
+              <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
+            </div>
+          </div>
+          <Button
+            className="w-full"
+            size="sm"
+            onClick={() => navigate(`/project/${project.id}/bid`, { state: { from: `${location.pathname}${location.search}` } })}
           >
-            {project.urgency}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <p className="text-gray-600 text-sm line-clamp-2 mb-3">
-          {project.description}
-        </p>
-        <div className="space-y-2 mb-4">
-          <div className="flex justify-between text-sm">
-            <span className="font-semibold text-green-600">£{project.budget}</span>
-            <span className="text-gray-500">{project.budget_type}</span>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>{project.location}</span>
-            <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
-          </div>
-        </div>
-        <Button
-          className="w-full"
-          size="sm"
-          onClick={() => navigate(`/project/${project.id}/bid`, { state: { from: `${location.pathname}${location.search}` } })}
-        >
-          Place Bid
-        </Button>
-      </CardContent>
-    </Card>
+            Place Bid
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
@@ -400,7 +414,7 @@ export default function SearchResults() {
             Loading {resultsType}...
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="flex flex-wrap gap-6 justify-center md:justify-start">
             {sortedResults.map((item) => (
               isSeller ? (
                 <ProjectCard key={item.id} project={item} />

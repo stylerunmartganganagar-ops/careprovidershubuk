@@ -70,6 +70,11 @@ export default function MessagesPage() {
   // Accepted milestone order for milestone creation
   const [acceptedMilestoneOrderId, setAcceptedMilestoneOrderId] = useState<string | null>(null);
   const [milestones, setMilestones] = useState<any[]>([]);
+  const [milestonesLoaded, setMilestonesLoaded] = useState(false);
+
+  // Milestones for individual milestone order messages
+  const [messageMilestones, setMessageMilestones] = useState<Record<string, any[]>>({});
+  const [loadingMilestones, setLoadingMilestones] = useState<Set<string>>(new Set());
 
   // Start Order dialog state
   const [showStartDialog, setShowStartDialog] = useState(false);
@@ -277,39 +282,14 @@ export default function MessagesPage() {
     }
   }, [user?.id, connectionStatus, lastRefresh]);
 
-  // Load milestones when accepted milestone order changes
-  const [milestonesLoaded, setMilestonesLoaded] = useState(false);
+  // Load milestones for milestone order start messages
   useEffect(() => {
-    const loadMilestones = async () => {
-      if (!acceptedMilestoneOrderId) {
-        setMilestones([]);
-        setMilestonesLoaded(false);
-        return;
+    messages.forEach(message => {
+      if (message.message_type === 'milestone_order_start' && message.milestone_order_id && !messageMilestones[message.id]) {
+        loadMessageMilestones(message.milestone_order_id, message.id);
       }
-
-      // Prevent loading if already loaded for this order
-      if (milestonesLoaded && milestones.length > 0) return;
-
-      try {
-        const { data, error } = await supabase
-          .from('milestones')
-          .select('*')
-          .eq('milestone_order_id', acceptedMilestoneOrderId)
-          .order('created_at', { ascending: true });
-
-        if (error) throw error;
-        setMilestones(data || []);
-        setMilestonesLoaded(true);
-      } catch (error) {
-        console.error('Failed to load milestones', error);
-        setMilestones([]);
-        setMilestonesLoaded(false);
-      }
-    };
-
-    loadMilestones();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acceptedMilestoneOrderId]);
+    });
+  }, [messages]);
 
   const setupRealtime = () => {
     const channel = supabase
@@ -865,6 +845,35 @@ export default function MessagesPage() {
     ));
   };
 
+  const loadMessageMilestones = async (milestoneOrderId: string, messageId: string) => {
+    if (loadingMilestones.has(messageId) || messageMilestones[messageId]) return;
+
+    setLoadingMilestones(prev => new Set(prev).add(messageId));
+
+    try {
+      const { data, error } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('milestone_order_id', milestoneOrderId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      setMessageMilestones(prev => ({
+        ...prev,
+        [messageId]: data || []
+      }));
+    } catch (error) {
+      console.error('Failed to load message milestones', error);
+    } finally {
+      setLoadingMilestones(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
+    }
+  };
+
   const sendMilestoneOrderStart = async () => {
     if (!user?.id || !activeChat) return;
     if (currentUserRole !== 'provider') {
@@ -1115,20 +1124,6 @@ export default function MessagesPage() {
 
                 {/* Messages */}
                 <div ref={messagesContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto bg-gray-50 max-h-[calc(100vh-330px)] md:max-h-[400px]">
-                  {/* Debug Info */}
-                  <div className="mb-4 p-3 bg-gray-50 border rounded-lg text-xs">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><strong>Conversations:</strong> {conversations.length}</div>
-                      <div><strong>Active Chat:</strong> {activeChat || 'None'}</div>
-                      <div><strong>Messages:</strong> {messages.length}</div>
-                      <div><strong>Connection:</strong> {connectionStatus}</div>
-                    </div>
-                    {conversations.length === 0 && (
-                      <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-yellow-700">
-                        No conversations found. Visit dashboard to browse services and contact sellers.
-                      </div>
-                    )}
-                  </div>
 
                   {connectionStatus === 'disconnected' && (
                     <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -1180,7 +1175,7 @@ export default function MessagesPage() {
                             )}
 
                             {message.message_type === 'milestone_order_start' && (
-                              <div className="space-y-2">
+                              <div className="space-y-3">
                                 <div className="flex items-center gap-2">
                                   <Badge variant={message.sender_id === user?.id ? 'secondary' : 'default'}>Milestone Order Proposal</Badge>
                                   <span className="text-xs opacity-80">{new Date(message.created_at).toLocaleString()}</span>
@@ -1192,10 +1187,56 @@ export default function MessagesPage() {
                                     <div className="mt-1 text-xs opacity-90 whitespace-pre-wrap">Req: {message.metadata?.requirements}</div>
                                   )}
                                 </div>
+
+                                {/* Individual Milestones */}
+                                <div className="space-y-2">
+                                  <div className="text-xs font-medium text-gray-600 uppercase tracking-wide">Milestones</div>
+                                  {loadingMilestones.has(message.id) ? (
+                                    <div className="text-xs text-gray-500">Loading milestones...</div>
+                                  ) : messageMilestones[message.id]?.length > 0 ? (
+                                    messageMilestones[message.id].map((milestone: any, index: number) => (
+                                      <div key={milestone.id} className="p-3 bg-gray-50 rounded-lg border">
+                                        <div className="flex items-start justify-between">
+                                          <div className="flex-1">
+                                            <div className="font-medium text-sm">{milestone.title}</div>
+                                            <div className="text-xs text-gray-600 mt-1">
+                                              £{milestone.amount} • Due: {new Date(milestone.due_date).toLocaleDateString()}
+                                            </div>
+                                            {milestone.description && (
+                                              <div className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">
+                                                {milestone.description}
+                                              </div>
+                                            )}
+                                            <Badge
+                                              variant={milestone.status === 'accepted' ? 'default' : milestone.status === 'completed' ? 'default' : 'secondary'}
+                                              className="text-xs mt-2"
+                                            >
+                                              {milestone.status}
+                                            </Badge>
+                                          </div>
+                                          {message.receiver_id === user?.id && milestone.status === 'pending' && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => acceptIndividualMilestone(milestone, message)}
+                                              className="ml-2 text-xs"
+                                            >
+                                              Accept
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="text-xs text-gray-500">No milestones found</div>
+                                  )}
+                                </div>
+
+                                {/* Overall Accept Button (kept for backward compatibility) */}
                                 {message.receiver_id === user?.id && (
                                   <div className="pt-1">
                                     <Button size="sm" variant="secondary" onClick={() => acceptMilestoneOrder(message)}>
-                                      Accept Milestone Order
+                                      Accept All Milestones
                                     </Button>
                                   </div>
                                 )}

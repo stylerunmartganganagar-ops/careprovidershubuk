@@ -8,6 +8,13 @@ import {
   GraduationCap,
   Building,
   Package,
+  FileText,
+  Users,
+  CheckCircle,
+  DollarSign,
+  UserCheck,
+  TrendingUp,
+  Loader2
 } from "lucide-react";
 import regulatoryImg from "@/assets/category-regulatory.jpg";
 import consultingImg from "@/assets/category-consulting.jpg";
@@ -15,89 +22,74 @@ import softwareImg from "@/assets/category-software.jpg";
 import trainingImg from "@/assets/category-training.jpg";
 import professionalImg from "@/assets/category-professional.jpg";
 import suppliesImg from "@/assets/category-supplies.jpg";
-
-const categories = [
-  {
-    title: "Regulatory & Legal Compliance",
-    icon: Shield,
-    image: regulatoryImg,
-    services: [
-      "CQC Registration",
-      "Ofsted Registration",
-      "CQC Compliance Inspection",
-      "Sponsor Visa Application",
-      "Sponsor Visa Compliance",
-    ],
-    providerCount: "45+",
-  },
-  {
-    title: "Consulting Services",
-    icon: Briefcase,
-    image: consultingImg,
-    services: [
-      "Tender Consultants",
-      "Audit Management",
-      "Safeguarding Consultation",
-      "Medication Consultation",
-      "Policies and Procedures",
-    ],
-    providerCount: "67+",
-  },
-  {
-    title: "Care Management & Software",
-    icon: Laptop,
-    image: softwareImg,
-    services: [
-      "Care Management Software",
-      "Home Care Setup",
-      "Residential Care Setup",
-      "Supported Living Setup",
-      "Digital Solutions",
-    ],
-    providerCount: "32+",
-  },
-  {
-    title: "Training & Development",
-    icon: GraduationCap,
-    image: trainingImg,
-    services: [
-      "Children's Training",
-      "Home Care Training",
-      "Residential Training",
-      "LD Training",
-      "Compliance Training",
-    ],
-    providerCount: "58+",
-  },
-  {
-    title: "Professional Services",
-    icon: Building,
-    image: professionalImg,
-    services: [
-      "Accountants",
-      "Insurance Brokers",
-      "Website Designers",
-      "Legal Services",
-      "Marketing Agencies",
-    ],
-    providerCount: "41+",
-  },
-  {
-    title: "Supplies & Equipment",
-    icon: Package,
-    image: suppliesImg,
-    services: [
-      "PPE Suppliers",
-      "Equipment Suppliers",
-      "Furniture Suppliers",
-      "Medical Supplies",
-      "Care Essentials",
-    ],
-    providerCount: "28+",
-  },
-];
+import { useCategories } from "@/hooks/useCategories";
 
 export const ServiceCategories = () => {
+  const { categories, loading, error } = useCategories();
+
+  // Map category names to icons and images
+  const getCategoryIcon = (categoryName: string) => {
+    const iconMap: Record<string, any> = {
+      'Tender & Bid Writing Services': FileText,
+      'Legal Consultancy': Shield,
+      'CQC (England) / CI (Scotland) / CIW (Wales)': Shield,
+      'Ofsted Registration': CheckCircle,
+      'Non-Regulated Care': Users,
+      'Care Client Management': Users,
+      'Care Audits / Mock Inspections': CheckCircle,
+      'Business Operations Consultancy': Briefcase,
+      'Business Finance Consultancy': DollarSign,
+      'Training Providers': GraduationCap,
+      'Equipment / Supplies': Package,
+      'Employment': UserCheck,
+      'Business Buying/Selling': TrendingUp,
+    };
+    return iconMap[categoryName] || Building;
+  };
+
+  const getCategoryImage = (categoryName: string) => {
+    const imageMap: Record<string, string> = {
+      'Tender & Bid Writing Services': consultingImg,
+      'Legal Consultancy': regulatoryImg,
+      'CQC (England) / CI (Scotland) / CIW (Wales)': regulatoryImg,
+      'Ofsted Registration': regulatoryImg,
+      'Non-Regulated Care': consultingImg,
+      'Care Client Management': consultingImg,
+      'Care Audits / Mock Inspections': consultingImg,
+      'Business Operations Consultancy': professionalImg,
+      'Business Finance Consultancy': professionalImg,
+      'Training Providers': trainingImg,
+      'Equipment / Supplies': suppliesImg,
+      'Employment': professionalImg,
+      'Business Buying/Selling': professionalImg,
+    };
+    return imageMap[categoryName] || consultingImg;
+  };
+
+  if (loading) {
+    return (
+      <section className="py-20 bg-background">
+        <div className="container mx-auto px-4">
+          <div className="flex justify-center items-center">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="py-20 bg-background">
+        <div className="container mx-auto px-4">
+          <div className="text-center text-red-500">
+            Failed to load categories: {error}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="py-20 bg-background">
       <div className="container mx-auto px-4">
@@ -111,17 +103,18 @@ export const ServiceCategories = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {categories.map((category, index) => {
-            const Icon = category.icon;
+          {categories.map((category) => {
+            const Icon = getCategoryIcon(category.name);
+            const image = getCategoryImage(category.name);
             return (
               <Card
-                key={index}
+                key={category.id}
                 className="group overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer"
               >
                 <div className="relative h-48 overflow-hidden">
                   <img
-                    src={category.image}
-                    alt={category.title}
+                    src={image}
+                    alt={category.name}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -129,25 +122,30 @@ export const ServiceCategories = () => {
                     <Icon className="h-10 w-10 text-white" />
                   </div>
                   <Badge className="absolute top-4 right-4 bg-accent text-accent-foreground">
-                    {category.providerCount} verified providers
+                    {category.subcategories.length} services
                   </Badge>
                 </div>
                 
                 <CardContent className="p-6">
                   <h3 className="text-xl font-semibold mb-4 text-foreground">
-                    {category.title}
+                    {category.name}
                   </h3>
                   
                   <ul className="space-y-2 mb-6">
-                    {category.services.map((service, idx) => (
+                    {category.subcategories.slice(0, 5).map((subcategory) => (
                       <li
-                        key={idx}
+                        key={subcategory.id}
                         className="text-sm text-muted-foreground flex items-start"
                       >
                         <span className="mr-2 text-accent">•</span>
-                        {service}
+                        {subcategory.name}
                       </li>
                     ))}
+                    {category.subcategories.length > 5 && (
+                      <li className="text-sm text-muted-foreground">
+                        +{category.subcategories.length - 5} more services
+                      </li>
+                    )}
                   </ul>
                   
                   <Button variant="outline" className="w-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors">

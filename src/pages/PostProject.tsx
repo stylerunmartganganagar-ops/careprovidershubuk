@@ -5,17 +5,28 @@ import { Footer } from '../components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { useSimpleCategories, useSubcategoriesByCategory } from '../hooks/useCategories';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { Label } from '../components/ui/label';
 import { ArrowLeft, Plus, X, Calendar, DollarSign, MapPin, Clock, Users, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '../lib/auth.tsx';
+import { useCreateProject } from '../hooks/useProjects';
 
 export default function PostProject() {
   const navigate = useNavigate();
+  const { categories: categoryOptions } = useSimpleCategories();
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('');
+  const { subcategories: subcategoryOptions, loading: subcategoriesLoading } = useSubcategoriesByCategory(selectedCategory || null);
+  const { user } = useAuth();
+  const { createProject, loading: creatingProject } = useCreateProject();
   const [formData, setFormData] = useState({
     title: '',
     category: '',
+    subcategory: '',
     description: '',
     budget: '',
     budgetType: 'fixed',
@@ -30,20 +41,6 @@ export default function PostProject() {
   const [skillInput, setSkillInput] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const categories = [
-    'CQC Registration',
-    'Business Consulting',
-    'Care Software',
-    'Training Services',
-    'Accounting',
-    'Immigration Services',
-    'Healthcare Compliance',
-    'Nursing Home Setup',
-    'Regulatory Documentation',
-    'Safety Training',
-    'Financial Planning'
-  ];
-
   const urgencyLevels = [
     { value: 'low', label: 'Low Priority', color: 'bg-blue-100 text-blue-800' },
     { value: 'medium', label: 'Medium Priority', color: 'bg-yellow-100 text-yellow-800' },
@@ -54,6 +51,35 @@ export default function PostProject() {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const handleCategoryChange = (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    const selected = categoryOptions.find(category => category.id === categoryId);
+    setFormData(prev => ({
+      ...prev,
+      category: selected?.name || '',
+      subcategory: ''
+    }));
+    setSelectedSubcategory('');
+    if (errors.category) {
+      setErrors(prev => ({ ...prev, category: '' }));
+    }
+    if (errors.subcategory) {
+      setErrors(prev => ({ ...prev, subcategory: '' }));
+    }
+  };
+
+  const handleSubcategoryChange = (subcategoryId: string) => {
+    setSelectedSubcategory(subcategoryId);
+    const selected = subcategoryOptions.find(subcategory => subcategory.id === subcategoryId);
+    setFormData(prev => ({
+      ...prev,
+      subcategory: selected?.name || ''
+    }));
+    if (errors.subcategory) {
+      setErrors(prev => ({ ...prev, subcategory: '' }));
     }
   };
 
@@ -94,6 +120,7 @@ export default function PostProject() {
 
     if (!formData.title.trim()) newErrors.title = 'Project title is required';
     if (!formData.category) newErrors.category = 'Category is required';
+    if (!formData.subcategory) newErrors.subcategory = 'Subcategory is required';
     if (!formData.description.trim()) newErrors.description = 'Description is required';
     if (!formData.budget) newErrors.budget = 'Budget is required';
     if (!formData.location.trim()) newErrors.location = 'Location is required';
@@ -104,14 +131,45 @@ export default function PostProject() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (validateForm()) {
-      // TODO: Submit project to API
-      console.log('Project posted:', formData);
-      // Navigate back to dashboard or show success message
-      navigate('/home/123'); // TODO: Use actual user ID
+      if (!user) {
+        toast.error('You must be logged in to post a project.');
+        return;
+      }
+
+      const budgetValue = Number(formData.budget);
+      if (Number.isNaN(budgetValue)) {
+        setErrors(prev => ({ ...prev, budget: 'Budget must be a valid number' }));
+        return;
+      }
+
+      try {
+        await createProject({
+          user_id: user.id,
+          title: formData.title.trim(),
+          category: formData.category,
+          subcategory: formData.subcategory || null,
+          description: formData.description.trim(),
+          budget: budgetValue,
+          budget_type: formData.budgetType as 'fixed' | 'hourly' | 'monthly',
+          location: formData.location.trim(),
+          deadline: formData.deadline,
+          urgency: formData.urgency as 'low' | 'medium' | 'high',
+          skills: formData.skills,
+          requirements: formData.requirements ? formData.requirements.trim() : null,
+          attachments: null,
+          status: 'pending'
+        });
+
+        toast.success('Project submitted successfully!');
+        navigate(`/home/${user.id}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to post project';
+        toast.error(message);
+      }
     }
   };
 
@@ -174,14 +232,14 @@ export default function PostProject() {
 
                   <div>
                     <Label htmlFor="category">Category *</Label>
-                    <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
+                    <Select value={selectedCategory} onValueChange={handleCategoryChange} disabled={creatingProject}>
                       <SelectTrigger className={errors.category ? 'border-red-500' : ''}>
                         <SelectValue placeholder="Select a category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category}
+                        {categoryOptions.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -190,6 +248,32 @@ export default function PostProject() {
                       <p className="text-red-500 text-sm mt-1 flex items-center">
                         <AlertCircle className="h-4 w-4 mr-1" />
                         {errors.category}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="subcategory">Subcategory *</Label>
+                    <Select 
+                      value={selectedSubcategory} 
+                      onValueChange={handleSubcategoryChange}
+                      disabled={!selectedCategory || subcategoriesLoading || creatingProject}
+                    >
+                      <SelectTrigger className={errors.subcategory ? 'border-red-500' : ''}>
+                        <SelectValue placeholder={!selectedCategory ? "Select a category first" : "Select a subcategory"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subcategoryOptions.map((subcategory) => (
+                          <SelectItem key={subcategory.id} value={subcategory.id}>
+                            {subcategory.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors.subcategory && (
+                      <p className="text-red-500 text-sm mt-1 flex items-center">
+                        <AlertCircle className="h-4 w-4 mr-1" />
+                        {errors.subcategory}
                       </p>
                     )}
                   </div>

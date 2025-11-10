@@ -23,6 +23,7 @@ import {
   Settings,
   CreditCard,
   LogOut,
+  TrendingUp,
 } from 'lucide-react';
 
 import { MessageDrawer } from './MessageDrawer';
@@ -139,17 +140,83 @@ export function HeaderUserMenu() {
           <Heart className="h-5 w-5" />
         </Button>
 
-        {/* Temporary replacement for DropdownMenu to isolate render loop */}
-        <Button
-          variant="ghost"
-          className="relative h-8 w-8 rounded-full"
-          onClick={() => navigate('/user-profile')}
-          title={user?.email || 'Profile'}
-        >
-          <Avatar className="h-8 w-8">
-            <img src={user?.avatar} alt={user?.name} />
-          </Avatar>
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="relative h-8 w-8 rounded-full"
+              title={user?.email || 'Profile'}
+            >
+              <Avatar className="h-8 w-8">
+                <img src={user?.avatar} alt={user?.name} />
+              </Avatar>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-64" align="end">
+            <DropdownMenuLabel>
+              <div className="font-semibold">{user?.name || 'Account'}</div>
+              <div className="text-xs text-muted-foreground">
+                {user?.role || 'user'}, Premium
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem onClick={() => navigate('/user-profile')}>
+              <User className="mr-2 h-4 w-4" />
+              <span>Profile Overview</span>
+            </DropdownMenuItem>
+
+            {isBuyer && (
+              <>
+                <DropdownMenuItem onClick={() => navigate('/my-orders')}>
+                  <Package className="mr-2 h-4 w-4" />
+                  <span>My Orders</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/payment-methods')}>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  <span>Payment Methods</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/payment-history')}>
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  <span>Billing History</span>
+                </DropdownMenuItem>
+              </>
+            )}
+
+            {isSeller && (
+              <>
+                <DropdownMenuItem onClick={() => user?.id && navigate(`/home/sellers/${user.id}`)}>
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  <span>Seller Dashboard</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/seller/services')}>
+                  <Package className="mr-2 h-4 w-4" />
+                  <span>Manage Services</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/seller/payment-methods')}>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  <span>Seller Payment Methods</span>
+                </DropdownMenuItem>
+              </>
+            )}
+
+            <DropdownMenuItem onClick={() => navigate('/account-settings')}>
+              <Settings className="mr-2 h-4 w-4" />
+              <span>Account Settings</span>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                logout();
+                navigate('/');
+              }}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              <span>Log out</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <MessageDrawer open={messagesOpen} onOpenChange={setMessagesOpen} />
       <NotificationDrawer open={notificationsOpen} onOpenChange={setNotificationsOpen} />

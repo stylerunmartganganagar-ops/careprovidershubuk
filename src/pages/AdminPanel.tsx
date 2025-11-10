@@ -55,7 +55,7 @@ import {
   RefreshCw,
   Plus
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Database, supabase } from '../lib/supabase';
 
 type UserRecord = {
   id: string;
@@ -259,6 +259,7 @@ export default function AdminPanel() {
     price: number;
     status: string;
     created_at: string;
+    order_type?: 'regular' | 'milestone';
   }>>([]);
   const [acceptedOrders, setAcceptedOrders] = useState<Array<{
     id: string;
@@ -268,6 +269,7 @@ export default function AdminPanel() {
     price: number;
     status: string;
     created_at: string;
+    order_type?: 'regular' | 'milestone';
   }>>([]);
 
   // Pending approvals
@@ -337,8 +339,9 @@ export default function AdminPanel() {
     try {
       setReportsLoading(true);
 
-      const [{ data: ordersData, error: ordersError }, { data: paymentsData, error: paymentsError }, { data: usersData, error: usersError }] = await Promise.all([
+      const [{ data: ordersData, error: ordersError }, { data: milestoneOrdersData, error: milestoneOrdersError }, { data: paymentsData, error: paymentsError }, { data: usersData, error: usersError }] = await Promise.all([
         supabase.from('orders').select('status'),
+        supabase.from('milestone_orders').select('status'),
         supabase
           .from('payments')
           .select('amount, created_at')
@@ -352,10 +355,11 @@ export default function AdminPanel() {
       ]);
 
       if (ordersError) throw ordersError;
+      if (milestoneOrdersError) throw milestoneOrdersError;
       if (paymentsError) throw paymentsError;
       if (usersError) throw usersError;
 
-      const ordersByStatus = (ordersData || []).reduce((acc: Array<{ status: string; count: number }>, row: any) => {
+      const ordersByStatus = [...(ordersData || []), ...(milestoneOrdersData || [])].reduce((acc: Array<{ status: string; count: number }>, row: any) => {
         const status = row.status || 'unknown';
         const existing = acc.find((item) => item.status === status);
         if (existing) existing.count += 1;
@@ -514,7 +518,7 @@ export default function AdminPanel() {
 
       console.log(`Seller ${action}ned successfully`);
       // Refresh the sellers list
-      loadSellers();
+      loadUsers();
     } catch (e) {
       console.error(`Error ${action}ning seller:`, e);
     }
@@ -682,13 +686,53 @@ export default function AdminPanel() {
 
     const loadCreatedOrders = async () => {
       try {
-        const { data, error } = await supabase
+        // Load regular orders
+        const { data: regularOrders, error: regularError } = await supabase
           .from('orders')
           .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, proposal_message_id')
           .order('created_at', { ascending: false })
           .limit(100);
-        if (error) throw error;
-        setCreatedOrders(data || []);
+
+        if (regularError) throw regularError;
+
+        // Load milestone orders
+        const { data: milestoneOrders, error: milestoneError } = await supabase
+          .from('milestone_orders')
+          .select('id, title, buyer_id, provider_id, total_amount, status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (milestoneError) throw milestoneError;
+
+        // Combine and normalize the data
+        const normalizedRegularOrders = (regularOrders || []).map(order => ({
+          id: order.id,
+          title: order.title,
+          buyer_id: order.buyer_id,
+          provider_id: order.provider_id,
+          price: order.price,
+          status: order.status,
+          created_at: order.created_at,
+          order_type: 'regular' as const,
+        }));
+
+        const normalizedMilestoneOrders = (milestoneOrders || []).map(order => ({
+          id: order.id,
+          title: order.title,
+          buyer_id: order.buyer_id,
+          provider_id: order.provider_id,
+          price: order.total_amount,
+          status: order.status,
+          created_at: order.created_at,
+          order_type: 'milestone' as const,
+        }));
+
+        // Combine both types and sort by created_at
+        const allOrders = [...normalizedRegularOrders, ...normalizedMilestoneOrders]
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 100);
+
+        setCreatedOrders(allOrders);
       } catch (e) {
         console.error('Error loading created orders', e);
       }
@@ -1245,24 +1289,6 @@ export default function AdminPanel() {
         ))}
       </TableBody>
     </Table>
-  );
-
-  const renderCreatedOrders = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Created Orders (Pending)</h2>
-      </div>
-      {renderOrdersTable(createdOrders)}
-    </div>
-  );
-
-  const renderAcceptedOrders = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Accepted Orders (In Progress)</h2>
-      </div>
-      {renderOrdersTable(acceptedOrders)}
-    </div>
   );
 
   const renderOverview = () => (
@@ -2195,6 +2221,132 @@ export default function AdminPanel() {
     </div>
   );
 
+  const renderCreatedOrders = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold">Created Orders</h2>
+          <p className="text-sm text-gray-500">All orders that have been created on the platform.</p>
+        </div>
+        <Button variant="outline" onClick={() => loadCreatedOrders()}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {createdOrders.length === 0 ? (
+          <Card className="col-span-full">
+            <CardContent className="p-6 text-center text-sm text-gray-500">
+              No orders found.
+            </CardContent>
+          </Card>
+        ) : (
+          createdOrders.map((order) => (
+            <Card key={order.id}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <h3 className="font-semibold text-gray-900">{order.title}</h3>
+                      <Badge variant={order.order_type === 'milestone' ? 'default' : 'secondary'} className="text-xs">
+                        {order.order_type === 'milestone' ? 'Milestone' : 'Regular'}
+                      </Badge>
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      Order #{order.id.slice(-8)}
+                    </div>
+                  </div>
+                  <Badge variant={
+                    order.status === 'completed' ? 'default' :
+                    order.status === 'in_progress' ? 'secondary' :
+                    order.status === 'pending' ? 'outline' : 'destructive'
+                  }>
+                    {order.status}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Amount:</span>
+                    <span className="font-semibold">£{order.price.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Created:</span>
+                    <span>{new Date(order.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  const renderAcceptedOrders = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold">Accepted Orders</h2>
+          <p className="text-sm text-gray-500">Orders that are in progress or completed.</p>
+        </div>
+        <Button variant="outline" onClick={() => loadAcceptedOrders()}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {acceptedOrders.length === 0 ? (
+          <Card className="col-span-full">
+            <CardContent className="p-6 text-center text-sm text-gray-500">
+              No accepted orders found.
+            </CardContent>
+          </Card>
+        ) : (
+          acceptedOrders.map((order) => (
+            <Card key={order.id}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <h3 className="font-semibold text-gray-900">{order.title}</h3>
+                      <Badge variant={order.order_type === 'milestone' ? 'default' : 'secondary'} className="text-xs">
+                        {order.order_type === 'milestone' ? 'Milestone' : 'Regular'}
+                      </Badge>
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      Order #{order.id.slice(-8)}
+                    </div>
+                  </div>
+                  <Badge variant={
+                    order.status === 'completed' ? 'default' :
+                    order.status === 'in_progress' ? 'secondary' :
+                    order.status === 'pending' ? 'outline' : 'destructive'
+                  }>
+                    {order.status}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Amount:</span>
+                    <span className="font-semibold">£{order.price.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Created:</span>
+                    <span>{new Date(order.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       <div className="flex-none">
@@ -2224,6 +2376,10 @@ export default function AdminPanel() {
   );
 }
 function handleReject(approval: ApprovalItem): void {
+  throw new Error('Function not implemented.');
+}
+
+function loadOverview(): void {
   throw new Error('Function not implemented.');
 }
 

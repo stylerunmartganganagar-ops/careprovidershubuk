@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
 import { MobileBottomNavbar } from '../components/MobileBottomNavbar';
@@ -47,111 +47,117 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
 // ServiceCard component - enhanced version from SearchResults
-const ServiceCard = ({ service }: { service: any }) => {
+interface ServiceCardProps {
+  service: any;
+  wrapperClassName?: string;
+}
+
+const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ServiceCardProps) => {
   // Use username directly from provider data (from database join)
   const displayUsername = service.provider?.username || 'adventurousdiamond48'; // Fallback to known username
 
   return (
-    <Link to={`/service/${service.id}`} className="block">
-      <Card className="hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer">
-        {/* Large Service Image - FIRST GIG IMAGE AS TITLE */}
-        <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
-          {service.images && service.images.length > 0 ? (
-            <img
-              src={service.images[0]} // FIRST GIG IMAGE
-              alt={service.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=default';
-              }}
-            />
-          ) : (
-            // Fallback when no images
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
-              <div className="text-center text-gray-500">
-                <div className="text-4xl mb-2">📷</div>
-                <div className="text-sm">No image available</div>
+    <div className={wrapperClassName}>
+      <Link to={`/service/${service.id}`} className="block h-full">
+        <Card className="h-full hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer">
+          {/* Large Service Image - FIRST GIG IMAGE AS TITLE */}
+          <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
+            {service.images && service.images.length > 0 ? (
+              <img
+                src={service.images[0]} // FIRST GIG IMAGE
+                alt={service.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = 'https://api.dicebear.com/7.x/avataaars/svg?seed=default';
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-200 to-gray-300">
+                <div className="text-center text-gray-500">
+                  <div className="text-4xl mb-2">📷</div>
+                  <div className="text-sm">No image available</div>
+                </div>
               </div>
+            )}
+
+            {/* Overlay gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+            {/* Price badge on image */}
+            <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-1 shadow-lg">
+              <div className="text-lg font-bold text-gray-900">
+                £{service.price}
+              </div>
+              <div className="text-xs text-gray-600">Starting at</div>
             </div>
-          )}
 
-          {/* Overlay gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
-          {/* Price badge on image */}
-          <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm rounded-lg px-3 py-1 shadow-lg">
-            <div className="text-lg font-bold text-gray-900">
-              £{service.price}
-            </div>
-            <div className="text-xs text-gray-600">Starting at</div>
-          </div>
-
-          {/* Image count indicator */}
-          {service.images && service.images.length > 1 && (
-            <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1">
-              <span className="text-xs text-white font-medium">
-                📸 {service.images.length}
-              </span>
-            </div>
-          )}
-        </div>
-
-        <CardContent className="p-4">
-          {/* Username and Rating */}
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center">
-                <span className="text-xs font-semibold text-gray-600">
-                  {displayUsername.charAt(0).toUpperCase()}
+            {/* Image count indicator */}
+            {service.images && service.images.length > 1 && (
+              <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1">
+                <span className="text-xs text-white font-medium">
+                  📸 {service.images.length}
                 </span>
               </div>
-              <span className="text-sm font-medium text-gray-700 truncate">
-                {displayUsername}
-              </span>
-            </div>
-
-            {/* Rating */}
-            <div className="flex items-center space-x-1">
-              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-              <span className="text-xs font-medium text-gray-700">
-                {(service.provider?.rating || 0).toFixed(1)}
-              </span>
-              <span className="text-xs text-gray-500">
-                ({service.provider?.review_count || 0})
-              </span>
-            </div>
+            )}
           </div>
 
-          {/* Service Title */}
-          <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
-            {service.title}
-          </h3>
+          <CardContent className="p-4">
+            {/* Username and Rating */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-6 h-6 bg-gray-200 rounded-full flex items-center justify-center">
+                  <span className="text-xs font-semibold text-gray-600">
+                    {displayUsername.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-sm font-medium text-gray-700 truncate">
+                  {displayUsername}
+                </span>
+              </div>
 
-          {/* Tags/Badges */}
-          <div className="flex items-center justify-between">
-            <div className="flex flex-wrap gap-1">
-              {service.tags && service.tags.slice(0, 2).map((tag: string, index: number) => (
-                <Badge key={index} variant="secondary" className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 hover:bg-gray-200">
-                  {tag}
-                </Badge>
-              ))}
-              {service.is_active && (
-                <Badge variant="outline" className="text-xs px-2 py-0.5 border-green-200 text-green-700">
-                  Active
-                </Badge>
-              )}
+              {/* Rating */}
+              <div className="flex items-center space-x-1">
+                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                <span className="text-xs font-medium text-gray-700">
+                  {(service.provider?.rating || 0).toFixed(1)}
+                </span>
+                <span className="text-xs text-gray-500">
+                  ({service.provider?.review_count || 0})
+                </span>
+              </div>
             </div>
 
-            {/* Delivery time */}
-            <div className="flex items-center text-xs text-gray-500">
-              <Clock className="h-3 w-3 mr-1" />
-              <span>{service.delivery_time}</span>
+            {/* Service Title */}
+            <h3 className="text-base font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
+              {service.title}
+            </h3>
+
+            {/* Tags/Badges */}
+            <div className="flex items-center justify-between">
+              <div className="flex flex-wrap gap-1">
+                {service.tags && service.tags.slice(0, 2).map((tag: string, index: number) => (
+                  <Badge key={index} variant="secondary" className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 hover:bg-gray-200">
+                    {tag}
+                  </Badge>
+                ))}
+                {service.is_active && (
+                  <Badge variant="outline" className="text-xs px-2 py-0.5 border-green-200 text-green-700">
+                    Active
+                  </Badge>
+                )}
+              </div>
+
+              {/* Delivery time */}
+              <div className="flex items-center text-xs text-gray-500">
+                <Clock className="h-3 w-3 mr-1" />
+                <span>{service.delivery_time}</span>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
+          </CardContent>
+        </Card>
+      </Link>
+    </div>
   );
 };
 
@@ -164,6 +170,20 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading } = useBuyerProjects(user?.id);
   const { services, loading: servicesLoading } = useServices();
+
+  const justForYouRef = useRef<HTMLDivElement>(null);
+  const featuredRef = useRef<HTMLDivElement>(null);
+  const basedOnSearchesRef = useRef<HTMLDivElement>(null);
+
+  const scrollCarousel = (ref: React.RefObject<HTMLDivElement>, direction: 'left' | 'right') => {
+    const container = ref.current;
+    if (!container) return;
+    const scrollByAmount = container.clientWidth * 0.85;
+    container.scrollBy({
+      left: direction === 'left' ? -scrollByAmount : scrollByAmount,
+      behavior: 'smooth'
+    });
+  };
 
   // Fetch real stats for the user
   const [stats, setStats] = useState({
@@ -464,7 +484,10 @@ export default function DashboardPage() {
                   Loading recommendations...
                 </div>
               ) : justForYouServices.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div
+                  ref={justForYouRef}
+                  className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0"
+                >
                   {justForYouServices.map((service) => (
                     <ServiceCard key={service.id} service={service} />
                   ))}
@@ -474,18 +497,18 @@ export default function DashboardPage() {
                   No personalized recommendations yet
                 </div>
               )}
-              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end md:hidden">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => scrollCarousel(justForYouRef, 'left')}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => scrollCarousel(justForYouRef, 'right')}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -516,10 +539,13 @@ export default function DashboardPage() {
                   Loading featured services...
                 </div>
               ) : featuredServices.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div
+                  ref={featuredRef}
+                  className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0"
+                >
                   {featuredServices.map((service) => (
                     <div key={service.id} className="relative">
-                      <ServiceCard service={service} />
+                      <ServiceCard service={service} wrapperClassName="flex-none w-[260px] sm:w-[300px] snap-start md:w-auto" />
                       <div className="absolute top-3 left-3 bg-yellow-500 text-white text-xs px-2 py-1 rounded-full font-medium shadow-lg">
                         Featured
                       </div>
@@ -531,18 +557,18 @@ export default function DashboardPage() {
                   No featured services available
                 </div>
               )}
-              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end md:hidden">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => scrollCarousel(featuredRef, 'left')}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => scrollCarousel(featuredRef, 'right')}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -573,7 +599,10 @@ export default function DashboardPage() {
                   Loading search-based services...
                 </div>
               ) : basedOnSearchesServices.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div
+                  ref={basedOnSearchesRef}
+                  className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0"
+                >
                   {basedOnSearchesServices.map((service) => (
                     <ServiceCard key={service.id} service={service} />
                   ))}
@@ -585,18 +614,18 @@ export default function DashboardPage() {
                   <span className="text-sm">Start searching for projects to see personalized recommendations.</span>
                 </div>
               )}
-              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end md:hidden">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => scrollCarousel(basedOnSearchesRef, 'left')}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => scrollCarousel(basedOnSearchesRef, 'right')}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>

@@ -55,6 +55,9 @@ import OrderDeliveryPage from "./pages/OrderDeliveryPage";
 import BidDetailPage from "./pages/BidDetailPage";
 import KYCVerification from "./pages/KYCVerification";
 import AdminKYC from "./pages/AdminKYC";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import CodeOfConductPage from "./pages/CodeOfConductPage";
+import InfoPage from "./pages/InfoPage";
 import { supabase } from './lib/supabase';
 
 const queryClient = new QueryClient();
@@ -101,6 +104,9 @@ const App = () => (
                 <Route path="/account-settings" element={<AccountSettings />} />
                 <Route path="/payment-methods" element={<PaymentMethods />} />
                 <Route path="/favorites" element={<Favorites />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                <Route path="/code-of-conduct" element={<CodeOfConductPage />} />
+                <Route path="/info/:slug" element={<InfoPage />} />
                 <Route path="/seller/earnings" element={<SellerEarnings />} />
                 <Route path="/seller/manage-orders" element={<SellerManageOrders />} />
                 <Route 

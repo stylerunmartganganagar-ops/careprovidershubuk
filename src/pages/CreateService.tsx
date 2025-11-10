@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from '../components/ui/badge';
 import { Label } from '../components/ui/label';
 import { ArrowLeft, Plus, X, DollarSign, Clock, Users, AlertCircle, Tag, ImageIcon } from 'lucide-react';
+import { useSimpleCategories, useSubcategoriesByCategory } from '../hooks/useCategories';
 import { useCreateService, useUpdateService } from '../hooks/useProjects';
 import { toast } from 'sonner';
 
@@ -20,11 +21,16 @@ export default function CreateService() {
   const { user } = useAuth();
   const { createService, loading: hookLoading } = useCreateService();
   const { updateService } = useUpdateService();
+  const { categories: categoryOptions, loading: categoriesLoading } = useSimpleCategories();
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('');
+  const { subcategories: subcategoryOptions, loading: subcategoriesLoading } = useSubcategoriesByCategory(selectedCategory || null);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     header: '',
     description: '',
     category: '',
+    subcategory: '',
     hourlyRate: '',
     experience: '',
     keywords: [] as string[],
@@ -39,20 +45,6 @@ export default function CreateService() {
   const [keywordInput, setKeywordInput] = useState('');
   const [languageInput, setLanguageInput] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const categories = [
-    'CQC Registration',
-    'Business Consulting',
-    'Care Software',
-    'Training Services',
-    'Accounting',
-    'Immigration Services',
-    'Healthcare Compliance',
-    'Nursing Home Setup',
-    'Regulatory Documentation',
-    'Safety Training',
-    'Financial Planning'
-  ];
 
   const experienceLevels = [
     { value: '1-2', label: '1-2 years' },
@@ -80,6 +72,35 @@ export default function CreateService() {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const handleCategoryChange = (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    const selected = categoryOptions.find(category => category.id === categoryId);
+    setFormData(prev => ({
+      ...prev,
+      category: selected?.name || '',
+      subcategory: ''
+    }));
+    setSelectedSubcategory('');
+    if (errors.category) {
+      setErrors(prev => ({ ...prev, category: '' }));
+    }
+    if (errors.subcategory) {
+      setErrors(prev => ({ ...prev, subcategory: '' }));
+    }
+  };
+
+  const handleSubcategoryChange = (subcategoryId: string) => {
+    setSelectedSubcategory(subcategoryId);
+    const selected = subcategoryOptions.find(subcategory => subcategory.id === subcategoryId);
+    setFormData(prev => ({
+      ...prev,
+      subcategory: selected?.name || ''
+    }));
+    if (errors.subcategory) {
+      setErrors(prev => ({ ...prev, subcategory: '' }));
     }
   };
 
@@ -190,6 +211,7 @@ export default function CreateService() {
     if (!formData.description.trim()) newErrors.description = 'Description is required';
     if (formData.description.length > 2500) newErrors.description = 'Description must be 2500 characters or less';
     if (!formData.category) newErrors.category = 'Category is required';
+    if (!formData.subcategory) newErrors.subcategory = 'Subcategory is required';
     if (!formData.hourlyRate) newErrors.hourlyRate = 'Hourly rate is required';
     if (!formData.experience) newErrors.experience = 'Experience level is required';
     if (formData.keywords.length === 0) newErrors.keywords = 'At least one keyword is required';
@@ -213,6 +235,7 @@ export default function CreateService() {
         title: formData.header || 'Test Service',
         description: formData.description || 'Test description',
         category: formData.category || 'CQC Registration',
+        subcategory: formData.subcategory,
         price: parseFloat(formData.hourlyRate) || 100,
         delivery_time: '1 day',
         revisions: 1,
@@ -539,14 +562,14 @@ export default function CreateService() {
                 <CardContent className="space-y-4">
                   <div>
                     <Label htmlFor="category">Category *</Label>
-                    <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
+                    <Select value={selectedCategory} onValueChange={handleCategoryChange}>
                       <SelectTrigger className={errors.category ? 'border-red-500' : ''}>
                         <SelectValue placeholder="Select a category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category}
+                        {categoryOptions.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -555,6 +578,32 @@ export default function CreateService() {
                       <p className="text-red-500 text-sm mt-1 flex items-center">
                         <AlertCircle className="h-4 w-4 mr-1" />
                         {errors.category}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="subcategory">Subcategory *</Label>
+                    <Select 
+                      value={selectedSubcategory} 
+                      onValueChange={handleSubcategoryChange}
+                      disabled={!selectedCategory || subcategoriesLoading}
+                    >
+                      <SelectTrigger className={errors.subcategory ? 'border-red-500' : ''}>
+                        <SelectValue placeholder={!selectedCategory ? "Select a category first" : "Select a subcategory"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subcategoryOptions.map((subcategory) => (
+                          <SelectItem key={subcategory.id} value={subcategory.id}>
+                            {subcategory.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {errors.subcategory && (
+                      <p className="text-red-500 text-sm mt-1 flex items-center">
+                        <AlertCircle className="h-4 w-4 mr-1" />
+                        {errors.subcategory}
                       </p>
                     )}
                   </div>

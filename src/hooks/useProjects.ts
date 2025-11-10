@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Database } from '../lib/database.types';
 
 export interface Project {
   id: string;
   user_id: string;
   title: string;
   category: string;
+  subcategory?: string;
   description: string;
   budget: number;
   budget_type: 'fixed' | 'hourly' | 'monthly';
@@ -112,6 +112,52 @@ type PortfolioInsert = {
   rating?: number | null;
   is_featured?: boolean;
 };
+
+type ProjectInsert = {
+  user_id: string;
+  title: string;
+  category: string;
+  subcategory?: string | null;
+  description: string;
+  budget: number;
+  budget_type: 'fixed' | 'hourly' | 'monthly';
+  location: string;
+  deadline: string;
+  urgency: 'low' | 'medium' | 'high';
+  skills: string[];
+  requirements?: string | null;
+  attachments?: string[] | null;
+  status?: 'pending' | 'open' | 'in_progress' | 'completed' | 'cancelled';
+};
+
+export function useCreateProject() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const createProject = async (projectData: ProjectInsert) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data, error } = await (supabase as any)
+        .from('projects')
+        .insert(projectData)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as Project;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create project';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { createProject, loading, error };
+}
 
 export function useBuyerProjects(userId: string | undefined) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -781,7 +827,7 @@ export async function updateSellerRating(revieweeId: string) {
     const totalRating = (reviews as { rating: number }[] | null)?.reduce((sum, review) => sum + (review.rating || 0), 0) || 0;
     const averageRating = reviewCount > 0 ? totalRating / reviewCount : 0;
 
-    const updatePayload: Database['public']['Tables']['users']['Update'] = {
+    const updatePayload: any = {
       rating: parseFloat(averageRating.toFixed(1)),
       review_count: reviewCount,
       updated_at: new Date().toISOString()
@@ -1034,7 +1080,10 @@ export function useServices() {
           .eq('approval_status', 'approved')
           .order('created_at', { ascending: false });
 
-        if (error) throw error;
+        if (error) {
+          console.error('useServices: Error fetching services:', error);
+          throw error;
+        }
         console.log('useServices: Fetched services with provider usernames:', (data as any)?.map((service: any) => ({
           serviceId: service.id,
           providerId: service.provider_id,
