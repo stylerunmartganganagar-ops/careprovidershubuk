@@ -14,7 +14,7 @@ import {
   Edit,
   Plus,
   Eye,
-  DollarSign,
+  PoundSterling,
   Clock,
   Star,
   Trash2,
@@ -261,7 +261,7 @@ export default function SellerServices() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="flex items-center">
-                        <DollarSign className="h-3 w-3 mr-1" />
+                        <PoundSterling className="h-3 w-3 mr-1" />
                         £{service.price}
                       </span>
                       <span className="text-gray-500">Hourly</span>

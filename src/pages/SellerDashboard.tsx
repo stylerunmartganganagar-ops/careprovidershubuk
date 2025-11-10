@@ -731,25 +731,35 @@ export default function SellerDashboard() {
     <SellerDashboardLayout>
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-20 md:pb-8 max-w-full overflow-hidden">
         {/* Welcome Banner */}
-        <section className="bg-gradient-to-r from-green-600 to-blue-600 rounded-lg p-8 mb-8 text-white">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">Welcome back{user?.name ? `, ${user.name}` : ''}!</h1>
-              <p className="text-green-100 mb-4">
-                You're a <span className="font-semibold text-white">Seller</span> - Find projects and grow your business on Providers Hub.
-              </p>
-              <div className="flex items-center space-x-4">
-                <Badge className="bg-white/20 text-white border-white/30">
-                  Professional Seller
+        <section className="bg-gradient-to-r from-green-600 to-blue-600 rounded-lg p-5 sm:p-6 lg:p-8 mb-8 text-white">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-4">
+              <div>
+                <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Welcome back{user?.name ? `, ${user.name}` : ''}!</h1>
+                <p className="mt-2 text-sm text-green-100 sm:text-base">
+                  Let’s keep growing your healthcare business today.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
+                  {profileCompletion.level} Seller
                 </Badge>
-                <Badge className="bg-white/20 text-white border-white/30">
-                  {profileCompletion.badge}
+                <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
+                  Profile {profileCompletion.percentage}% complete
                 </Badge>
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline" 
+                  size="sm" 
+                  className="bg-white/10 border-white/30 text-xs sm:text-sm text-white hover:bg-white/20 px-3 sm:px-4"
+                >
+                  Refresh Stats
+                </Button>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-4xl font-bold">£{realStats.earnings.monthly.toLocaleString()}</div>
-              <div className="text-green-100">Earned this month</div>
+            <div className="text-left sm:text-right">
+              <div className="text-3xl font-bold sm:text-4xl">£{realStats.earnings.total.toLocaleString()}</div>
+              <div className="text-sm text-green-100 sm:text-base">Total earnings</div>
             </div>
           </div>
         </section>

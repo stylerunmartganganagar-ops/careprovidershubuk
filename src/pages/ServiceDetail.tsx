@@ -20,7 +20,7 @@ import {
   ChevronLeft,
   Package,
   Image as ImageIcon,
-  DollarSign,
+  PoundSterling,
   User,
   Calendar,
   Shield,

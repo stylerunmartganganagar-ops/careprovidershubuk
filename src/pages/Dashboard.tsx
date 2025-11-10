@@ -365,33 +365,35 @@ export default function DashboardPage() {
     <DashboardLayout>
       <main className="container mx-auto px-4 py-8 pb-20 md:pb-8">
         {/* Welcome Banner */}
-        <section className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-8 mb-8 text-white">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">Welcome back{user?.name ? `, ${user.name}` : ''}!</h1>
-              <p className="text-blue-100 mb-4">
-                Ready to find the perfect healthcare service provider for your business?
-              </p>
-              <div className="flex items-center space-x-4">
-                <Badge className="bg-white/20 text-white border-white/30">
+        <section className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-5 sm:p-6 lg:p-8 mb-8 text-white">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-4">
+              <div>
+                <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Welcome back{user?.name ? `, ${user.name}` : ''}!</h1>
+                <p className="mt-2 text-sm text-blue-100 sm:text-base">
+                  Ready to find the perfect healthcare service provider for your business?
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
                   {stats.profile.level} Member
                 </Badge>
-                <Badge className="bg-white/20 text-white border-white/30">
+                <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
                   Member since {stats.profile.memberSince}
                 </Badge>
                 <Button 
-                  onClick={() => window.location.reload()} 
+                  onClick={() => window.location.reload()}
                   variant="outline" 
-                  size="sm" 
-                  className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+                  size="sm"
+                  className="bg-white/10 border-white/30 text-xs sm:text-sm text-white hover:bg-white/20 px-3 sm:px-4"
                 >
                   Refresh Stats
                 </Button>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-4xl font-bold">£{stats.orders.totalSpent.toLocaleString()}</div>
-              <div className="text-blue-100">Total spent</div>
+            <div className="text-left sm:text-right">
+              <div className="text-3xl font-bold sm:text-4xl">£{stats.orders.totalSpent.toLocaleString()}</div>
+              <div className="text-sm text-blue-100 sm:text-base">Total spent</div>
             </div>
           </div>
         </section>

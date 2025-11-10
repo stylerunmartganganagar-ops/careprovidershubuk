@@ -7,7 +7,7 @@ import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useSubmitBid } from '../hooks/useProjects';
 import { supabase } from '../lib/supabase';
-import { DollarSign, Send } from 'lucide-react';
+import { PoundSterling, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface BidDialogProps {
@@ -85,7 +85,7 @@ export function BidDialog({ projectId, projectTitle, trigger, onBidSubmitted }: 
           <div className="space-y-2">
             <Label htmlFor="bidAmount">Your Bid Amount (£)</Label>
             <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <PoundSterling className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
                 id="bidAmount"
                 type="number"
