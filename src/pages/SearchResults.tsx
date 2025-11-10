@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { DashboardLayout } from '../components/DashboardLayout';
@@ -25,11 +25,32 @@ import { useServices } from '../hooks/useProjects';
 import { useAvailableProjects } from '../hooks/useProjects';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
+import { Crown } from 'lucide-react';
+import { useIsPro } from '../hooks/usePro';
 
 interface ServiceCardProps {
   service: any;
   wrapperClassName?: string;
 }
+
+const normalizeKey = (value?: string | null) => (value ? value.trim().toLowerCase() : '');
+
+const serviceIsOnline = (service: any) => {
+  if (!service) return false;
+  const provider = service.provider || {};
+  const providerMeta = provider.raw_user_meta_data || provider.user_metadata || {};
+  const flags = [
+    provider.is_online,
+    provider.isOnline,
+    provider.online,
+    provider.available,
+    provider.status === 'online',
+    providerMeta.is_online,
+    providerMeta.online,
+    service.is_active,
+  ];
+  return flags.some((flag) => Boolean(flag));
+};
 
 // ServiceCard component - simplified to use provider data directly
 const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ServiceCardProps) => {
@@ -45,6 +66,8 @@ const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[30
   const displayUsername = service.provider?.username || 'adventurousdiamond48'; // Fallback to known username
 
   console.log(`ServiceCard ${service.id}: Using username "${displayUsername}" from provider data`);
+
+  const isOnline = serviceIsOnline(service);
 
   return (
     <div className={wrapperClassName}>
@@ -82,6 +105,17 @@ const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[30
               </div>
               <div className="text-xs text-gray-600">Starting at</div>
             </div>
+
+            {/* Online indicator */}
+            {isOnline && (
+              <div className="absolute top-3 left-3 flex items-center gap-2 bg-green-50/90 border border-green-200 rounded-full px-2 py-1 text-xs font-medium text-green-700 shadow-sm">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+                Online now
+              </div>
+            )}
 
             {/* Image count indicator */}
             {service.images && service.images.length > 1 && (
@@ -163,13 +197,17 @@ interface ProjectCardProps {
 const ProjectCard = ({ project, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ProjectCardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isPro } = useIsPro(project?.buyer_id);
 
   return (
     <div className={wrapperClassName}>
       <Card className="h-full hover:shadow-md transition-shadow">
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-            <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+            <CardTitle className="text-base line-clamp-2 flex-1 min-w-0 flex items-center gap-2">
+              {project.title}
+              {isPro && <Crown className="h-4 w-4 text-yellow-500" />}
+            </CardTitle>
             <Badge className="bg-green-100 text-green-800 text-xs self-start sm:self-auto flex-shrink-0">
               Open
             </Badge>
@@ -222,6 +260,11 @@ export default function SearchResults() {
 
   const [sortBy, setSortBy] = useState('relevance');
   const [filterBy, setFilterBy] = useState('all');
+  const [showOnlineOnly, setShowOnlineOnly] = useState(false);
+  const [serviceCategoryKey, setServiceCategoryKey] = useState('all');
+  const [serviceSubcategoryKey, setServiceSubcategoryKey] = useState('all');
+  const [projectCategoryKey, setProjectCategoryKey] = useState('all');
+  const [projectSubcategoryKey, setProjectSubcategoryKey] = useState('all');
 
   const { user } = useAuth();
   const isSeller = user?.role === 'provider';
@@ -247,6 +290,88 @@ export default function SearchResults() {
   };
 
   // Filter results by search query and location based on user role
+  const serviceCategoryData = useMemo(() => {
+    const map = new Map<string, { label: string; subs: Map<string, string> }>();
+    const allSubMap = new Map<string, string>();
+
+    services.forEach((svc) => {
+      const rawCategory = svc.category ? svc.category.trim() : '';
+      if (!rawCategory) return;
+      const categoryKey = normalizeKey(rawCategory) || rawCategory.toLowerCase();
+
+      if (!map.has(categoryKey)) {
+        map.set(categoryKey, { label: rawCategory, subs: new Map<string, string>() });
+      }
+
+      const rawSubCategory = svc.subcategory ? svc.subcategory.trim() : '';
+      if (rawSubCategory) {
+        const subKey = normalizeKey(rawSubCategory) || rawSubCategory.toLowerCase();
+        map.get(categoryKey)!.subs.set(subKey, rawSubCategory);
+        allSubMap.set(subKey, rawSubCategory);
+      }
+    });
+
+    return {
+      map,
+      categories: Array.from(map.entries()).map(([value, { label }]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
+      allSubcategories: Array.from(allSubMap.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
+  }, [services]);
+
+  const projectCategoryData = useMemo(() => {
+    const map = new Map<string, { label: string; subs: Map<string, string> }>();
+    const allSubMap = new Map<string, string>();
+
+    availableProjects.forEach((project) => {
+      const rawCategory = project.category ? project.category.trim() : '';
+      if (!rawCategory) return;
+      const categoryKey = normalizeKey(rawCategory) || rawCategory.toLowerCase();
+
+      if (!map.has(categoryKey)) {
+        map.set(categoryKey, { label: rawCategory, subs: new Map<string, string>() });
+      }
+
+      const rawSubCategory = project.subcategory ? project.subcategory.trim() : '';
+      if (rawSubCategory) {
+        const subKey = normalizeKey(rawSubCategory) || rawSubCategory.toLowerCase();
+        map.get(categoryKey)!.subs.set(subKey, rawSubCategory);
+        allSubMap.set(subKey, rawSubCategory);
+      }
+    });
+
+    return {
+      map,
+      categories: Array.from(map.entries()).map(([value, { label }]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
+      allSubcategories: Array.from(allSubMap.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
+  }, [availableProjects]);
+
+  const serviceSubcategoryOptions = useMemo(() => {
+    if (serviceCategoryKey === 'all') {
+      return serviceCategoryData.allSubcategories;
+    }
+    const entry = serviceCategoryData.map.get(serviceCategoryKey);
+    if (!entry) return [];
+    return Array.from(entry.subs.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [serviceCategoryKey, serviceCategoryData]);
+
+  const projectSubcategoryOptions = useMemo(() => {
+    if (projectCategoryKey === 'all') {
+      return projectCategoryData.allSubcategories;
+    }
+    const entry = projectCategoryData.map.get(projectCategoryKey);
+    if (!entry) return [];
+    return Array.from(entry.subs.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [projectCategoryKey, projectCategoryData]);
+
+  useEffect(() => {
+    setServiceSubcategoryKey('all');
+  }, [serviceCategoryKey]);
+
+  useEffect(() => {
+    setProjectSubcategoryKey('all');
+  }, [projectCategoryKey]);
+
   const filteredServices = services.filter(svc => {
     // Match service query against service title, description, features, or category
     const serviceMatch = !service || (
@@ -257,7 +382,10 @@ export default function SearchResults() {
     );
 
     const locationMatch = !location || (svc.provider?.location && svc.provider.location.toLowerCase().includes(location.toLowerCase()));
-    return serviceMatch && locationMatch;
+    const categoryMatch = serviceCategoryKey === 'all' || normalizeKey(svc.category) === serviceCategoryKey;
+    const subcategoryMatch = serviceSubcategoryKey === 'all' || normalizeKey(svc.subcategory) === serviceSubcategoryKey;
+    const onlineMatch = !showOnlineOnly || serviceIsOnline(svc);
+    return serviceMatch && locationMatch && categoryMatch && subcategoryMatch && onlineMatch;
   });
 
   const filteredProjects = availableProjects.filter(project => {
@@ -269,7 +397,10 @@ export default function SearchResults() {
     );
 
     const locationMatch = !location || project.location.toLowerCase().includes(location.toLowerCase());
-    return projectMatch && locationMatch;
+    const categoryMatch = projectCategoryKey === 'all' || normalizeKey(project.category) === projectCategoryKey;
+    const subcategoryMatch = projectSubcategoryKey === 'all' || normalizeKey(project.subcategory) === projectSubcategoryKey;
+
+    return projectMatch && locationMatch && categoryMatch && subcategoryMatch;
   });
 
   // Debug logging
@@ -305,6 +436,13 @@ export default function SearchResults() {
   });
 
   const sortedServices = [...filteredServices].sort((a, b) => {
+    const aOnline = serviceIsOnline(a);
+    const bOnline = serviceIsOnline(b);
+
+    if (aOnline !== bOnline) {
+      return Number(bOnline) - Number(aOnline);
+    }
+
     switch (sortBy) {
       case 'rating':
         return (b.provider?.rating || 0) - (a.provider?.rating || 0);
@@ -385,7 +523,92 @@ export default function SearchResults() {
               </p>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 flex-wrap">
+              {isBuyer && (
+                <>
+                  <Button
+                    variant={showOnlineOnly ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowOnlineOnly((prev) => !prev)}
+                    className={showOnlineOnly ? 'bg-green-600 hover:bg-green-700 text-white border-green-600' : 'border-green-200 text-green-700 hover:bg-green-50'}
+                  >
+                    <span className="relative flex h-2 w-2 mr-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    Online now
+                  </Button>
+
+                  {serviceCategoryData.categories.length > 0 && (
+                    <Select value={serviceCategoryKey} onValueChange={setServiceCategoryKey}>
+                      <SelectTrigger className="w-full sm:w-48">
+                        <SelectValue placeholder="All categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {serviceCategoryData.categories.map((category) => (
+                          <SelectItem key={category.value} value={category.value}>
+                            {category.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {serviceSubcategoryOptions.length > 0 && (
+                    <Select value={serviceSubcategoryKey} onValueChange={setServiceSubcategoryKey}>
+                      <SelectTrigger className="w-full sm:w-48">
+                        <SelectValue placeholder="All subcategories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Subcategories</SelectItem>
+                        {serviceSubcategoryOptions.map((subcategory) => (
+                          <SelectItem key={subcategory.value} value={subcategory.value}>
+                            {subcategory.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </>
+              )}
+
+              {isSeller && (
+                <>
+                  {projectCategoryData.categories.length > 0 && (
+                    <Select value={projectCategoryKey} onValueChange={setProjectCategoryKey}>
+                      <SelectTrigger className="w-full sm:w-48">
+                        <SelectValue placeholder="All categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {projectCategoryData.categories.map((category) => (
+                          <SelectItem key={category.value} value={category.value}>
+                            {category.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {projectSubcategoryOptions.length > 0 && (
+                    <Select value={projectSubcategoryKey} onValueChange={setProjectSubcategoryKey}>
+                      <SelectTrigger className="w-full sm:w-48">
+                        <SelectValue placeholder="All subcategories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Subcategories</SelectItem>
+                        {projectSubcategoryOptions.map((subcategory) => (
+                          <SelectItem key={subcategory.value} value={subcategory.value}>
+                            {subcategory.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </>
+              )}
+
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-full sm:w-48">
                   <SelectValue />

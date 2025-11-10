@@ -13,7 +13,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { supabase } from '../lib/supabase';
-import type { Database } from '../lib/database.types';
+import type { Database } from '../lib/supabase';
 import {
   ArrowLeft,
   User,
@@ -30,6 +30,8 @@ import {
   Shield,
   CheckCircle
 } from 'lucide-react';
+import { Crown } from 'lucide-react';
+import { useIsPro } from '../hooks/usePro';
 
 type ProfileData = {
   name: string;
@@ -61,6 +63,7 @@ type UsersUpdate = Database['public']['Tables']['users']['Update'];
 export default function UserProfile() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { isPro } = useIsPro(user?.id);
 
   const defaultProfile: ProfileData = {
     name: user?.name || user?.email?.split('@')[0] || 'Your Name',
@@ -446,9 +449,12 @@ export default function UserProfile() {
                     </Button>
                   </div>
 
-                  <h2 className="text-xl font-semibold mb-1">{profileData.name}</h2>
+                  <h2 className="text-xl font-semibold mb-1 flex items-center gap-2">
+                    {profileData.name}
+                    {isPro && <Crown className="h-4 w-4 text-yellow-500" />}
+                  </h2>
                   <p className="text-gray-600 mb-2">{profileData.jobTitle}</p>
-                  <Badge className="mb-4">Premium Member</Badge>
+                  {isPro && <Badge className="mb-4">Premium Member</Badge>}
 
                   <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="text-center">

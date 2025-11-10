@@ -51,6 +51,9 @@ import AdminSignup from "./pages/AdminSignup";
 import ServiceDetail from "./pages/ServiceDetail";
 import Home from "./pages/Home";
 import TokenPurchasePage from "./pages/TokenPurchasePage";
+import SellerWallet from "./pages/SellerWallet";
+import SellerMyBids from "./pages/SellerMyBids";
+import Plans from "./pages/Plans";
 import OrderDeliveryPage from "./pages/OrderDeliveryPage";
 import BidDetailPage from "./pages/BidDetailPage";
 import KYCVerification from "./pages/KYCVerification";
@@ -98,6 +101,7 @@ const App = () => (
                 <Route path="/payment-history" element={<PaymentHistory />} />
                 <Route path="/services/just-for-you" element={<AllServicesPage />} />
                 <Route path="/services/featured" element={<AllServicesPage />} />
+                <Route path="/plans" element={<Plans />} />
                 <Route path="/services/searched" element={<AllServicesPage />} />
                 <Route path="/recent-activity" element={<RecentActivityPage />} />
                 <Route path="/user-profile" element={<UserProfile />} />
@@ -116,6 +120,22 @@ const App = () => (
                       <TokenPurchasePage />
                     </ProtectedRoute>
                   } 
+                />
+                <Route 
+                  path="/seller/wallet" 
+                  element={
+                    <ProtectedRoute>
+                      <SellerWallet />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route 
+                  path="/seller/my-bids" 
+                  element={
+                    <ProtectedRoute>
+                      <SellerMyBids />
+                    </ProtectedRoute>
+                  }
                 />
                 <Route path="/seller/update-profile" element={<SellerUpdateProfile />} />
                 <Route path="/seller/services" element={<SellerServices />} />

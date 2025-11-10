@@ -39,9 +39,11 @@ import {
   Activity,
   Target,
   Zap,
+  Coins,
   Search,
   Image as ImageIcon
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { BidDialog } from '../components/BidDialog';
 import { useAuth } from '../lib/auth.tsx';
 import { Link, useNavigate } from 'react-router-dom';
@@ -74,6 +76,89 @@ export default function SellerDashboard() {
   });
 
   console.log('SellerDashboard render:', { user: user?.id, userRole: user?.role });
+
+  // Token plans for quick purchase
+  const TOKEN_PRICE_GBP = 5;
+  const [tokenPlans, setTokenPlans] = useState<Array<{
+    id: string;
+    slug: string;
+    name: string;
+    description: string;
+    tokens: number;
+    is_popular: boolean;
+  }>>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchPlans = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('token_plans')
+          .select('id, slug, name, description, tokens, is_popular')
+          .eq('is_active', true)
+          .order('tokens', { ascending: true });
+        if (error) throw error;
+        setTokenPlans(data || []);
+      } catch (e) {
+        console.error('Error loading token plans', e);
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+    fetchPlans();
+  }, []);
+
+  const handleQuickPurchase = async (planSlug: string) => {
+    if (!user?.id) {
+      toast.error('You must be logged in');
+      return;
+    }
+    const plan = tokenPlans.find(p => p.slug === planSlug);
+    if (!plan) return;
+    setPurchasingPlan(planSlug);
+    try {
+      // brief delay to mimic gateway
+      await new Promise(res => setTimeout(res, 900));
+
+      // read current balance
+      const { data: userRow, error: userErr } = await supabase
+        .from('users')
+        .select('bid_tokens')
+        .eq('id', user.id)
+        .single();
+      if (userErr) throw userErr;
+      const current = userRow?.bid_tokens ?? 0;
+
+      // update balance
+      const { error: updErr } = await supabase
+        .from('users')
+        .update({ bid_tokens: current + plan.tokens })
+        .eq('id', user.id);
+      if (updErr) throw updErr;
+
+      // record purchase
+      const amount = plan.tokens * TOKEN_PRICE_GBP;
+      const { error: insErr } = await supabase
+        .from('token_purchases')
+        .insert({
+          seller_id: user.id,
+          plan_id: plan.id,
+          tokens: plan.tokens,
+          amount,
+          currency: 'GBP',
+          status: 'completed'
+        });
+      if (insErr) throw insErr;
+
+      toast.success(`Purchased ${plan.tokens} tokens`);
+    } catch (e: any) {
+      console.error('Quick purchase error', e);
+      toast.error(e?.message || 'Failed to purchase tokens');
+    } finally {
+      setPurchasingPlan(null);
+    }
+  };
 
   // Fetch real stats for the seller
   const [realStats, setRealStats] = useState({
@@ -464,16 +549,26 @@ export default function SellerDashboard() {
                       <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
                     </div>
                   </div>
-                  <BidDialog
-                    projectId={project.id}
-                    projectTitle={project.title}
-                    onBidSubmitted={refetchProjects}
-                    trigger={
-                      <Button className="w-full bg-blue-600 hover:bg-blue-700" size="sm">
-                        Place Bid
-                      </Button>
-                    }
-                  />
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      size="sm"
+                      onClick={() => navigate(`/project/${project.id}`)}
+                    >
+                      View Full Project Details
+                    </Button>
+                    <BidDialog
+                      projectId={project.id}
+                      projectTitle={project.title}
+                      onBidSubmitted={refetchProjects}
+                      trigger={
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700" size="sm">
+                          Place Bid
+                        </Button>
+                      }
+                    />
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -593,6 +688,13 @@ export default function SellerDashboard() {
       icon: Search,
       color: 'bg-green-500',
       href: '/project-search'
+    },
+    {
+      title: 'My Bids',
+      description: 'See bids you have placed',
+      icon: Activity,
+      color: 'bg-teal-500',
+      href: '/seller/my-bids'
     },
     {
       title: 'Orders Received',
@@ -767,119 +869,17 @@ export default function SellerDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Project Carousels */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Just For You Projects Carousel */}
-            <section>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                <div>
-                  <h2 className="text-xl font-bold">Projects to Bid For</h2>
-                  <p className="text-sm text-gray-600">
-                    Projects that match your skills and expertise
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled
-                >
-                  View All
-                </Button>
-              </div>
-              {projectsLoading ? (
-                <div className="text-center py-8 text-gray-500">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                  Loading available projects...
-                </div>
-              ) : availableProjects.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {availableProjects.slice(0, 6).map((project) => (
-                    <Card key={project.id} className="hover:shadow-md transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                          <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
-                          <Badge className="bg-green-100 text-green-800 text-xs self-start sm:self-auto flex-shrink-0">
-                            Open
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                          <Badge variant="outline" className="text-xs">{project.category}</Badge>
-                          <Badge
-                            variant={
-                              project.urgency === 'high' ? 'destructive' :
-                              project.urgency === 'medium' ? 'default' : 'secondary'
-                            }
-                            className="text-xs"
-                          >
-                            {project.urgency}
-                          </Badge>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        <p className="text-gray-600 text-sm line-clamp-2 mb-3">
-                          {project.description}
-                        </p>
-                        <div className="space-y-2 mb-4">
-                          <div className="flex justify-between text-sm">
-                            <span className="font-semibold text-green-600">£{project.budget}</span>
-                            <span className="text-gray-500">{project.budget_type}</span>
-                          </div>
-                          <div className="flex justify-between text-xs text-gray-500">
-                            <span>{project.location}</span>
-                            <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                        <BidDialog
-                          projectId={project.id}
-                          projectTitle={project.title}
-                          onBidSubmitted={refetchProjects}
-                          trigger={
-                            <Button className="w-full" size="sm">
-                              Place Bid
-                            </Button>
-                          }
-                        />
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  No projects available for bidding at the moment.
-                  <br />
-                  <span className="text-sm">Check back later or update your skills to see more opportunities.</span>
-                </div>
-              )}
-              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </section>
-
-            {/* Featured Projects Carousel */}
+            {/* Featured Projects Carousel (moved above) */}
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-xl font-bold">Featured Projects</h2>
-                  <p className="text-sm text-gray-600">
-                    High-value projects from verified clients
-                  </p>
+                  <p className="text-sm text-gray-600">High-value projects from verified clients</p>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   disabled
-                  className="self-start sm:self-auto"
                 >
                   View All
                 </Button>
@@ -897,12 +897,8 @@ export default function SellerDashboard() {
                         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
                           <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
                           <div className="flex flex-col items-end space-y-1 self-start sm:self-auto flex-shrink-0">
-                            <Badge className="bg-yellow-100 text-yellow-800 text-xs">
-                              Featured
-                            </Badge>
-                            <Badge className="bg-green-100 text-green-800 text-xs">
-                              Open
-                            </Badge>
+                            <Badge className="bg-yellow-100 text-yellow-800 text-xs">Featured</Badge>
+                            <Badge className="bg-green-100 text-green-800 text-xs">Open</Badge>
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -949,6 +945,112 @@ export default function SellerDashboard() {
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   No featured projects available at the moment.
+                </div>
+              )}
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </section>
+
+            {/* Projects to Bid For (moved below) */}
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">Projects to Bid For</h2>
+                  <p className="text-sm text-gray-600">Projects that match your skills and expertise</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  className="self-start sm:self-auto"
+                >
+                  View All
+                </Button>
+              </div>
+              {projectsLoading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading available projects...
+                </div>
+              ) : availableProjects.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {availableProjects.slice(0, 6).map((project) => (
+                    <Card key={project.id} className="hover:shadow-md transition-shadow">
+                      <CardHeader className="pb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                          <CardTitle className="text-base line-clamp-2 flex-1 min-w-0">{project.title}</CardTitle>
+                          <Badge className="bg-green-100 text-green-800 text-xs self-start sm:self-auto flex-shrink-0">Open</Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <Badge variant="outline" className="text-xs">{project.category}</Badge>
+                          <Badge
+                            variant={
+                              project.urgency === 'high' ? 'destructive' :
+                              project.urgency === 'medium' ? 'default' : 'secondary'
+                            }
+                            className="text-xs"
+                          >
+                            {project.urgency}
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <p className="text-gray-600 text-sm line-clamp-2 mb-3">
+                          {project.description}
+                        </p>
+                        <div className="space-y-2 mb-4">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-semibold text-green-600">£{project.budget}</span>
+                            <span className="text-gray-500">{project.budget_type}</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>{project.location}</span>
+                            <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            size="sm"
+                            onClick={() => navigate(`/project/${project.id}`)}
+                          >
+                            View Full Project Details
+                          </Button>
+                          <BidDialog
+                            projectId={project.id}
+                            projectTitle={project.title}
+                            onBidSubmitted={refetchProjects}
+                            trigger={
+                              <Button className="w-full" size="sm">
+                                Place Bid
+                              </Button>
+                            }
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  No projects available for bidding at the moment.
+                  <br />
+                  <span className="text-sm">Check back later or update your skills to see more opportunities.</span>
                 </div>
               )}
               <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end">

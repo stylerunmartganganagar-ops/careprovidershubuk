@@ -460,62 +460,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Service Carousels */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Just For You Carousel */}
-            <section>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                <div>
-                  <h2 className="text-xl font-bold">Just For You</h2>
-                  <p className="text-sm text-gray-600">
-                    Personalized recommendations based on your activity
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/services/all', { state: { services: justForYouServices, title: 'Just For You', subtitle: 'Personalized recommendations based on your activity' } })}
-                  className="self-start sm:self-auto"
-                >
-                  View All
-                </Button>
-              </div>
-              {servicesLoading ? (
-                <div className="text-center py-8 text-gray-500">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                  Loading recommendations...
-                </div>
-              ) : justForYouServices.length > 0 ? (
-                <div
-                  ref={justForYouRef}
-                  className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0"
-                >
-                  {justForYouServices.map((service) => (
-                    <ServiceCard key={service.id} service={service} />
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  No personalized recommendations yet
-                </div>
-              )}
-              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end md:hidden">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => scrollCarousel(justForYouRef, 'left')}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => scrollCarousel(justForYouRef, 'right')}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </section>
-
-            {/* Featured Services Carousel */}
+            {/* Featured Services Carousel (moved above) */}
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <div>
@@ -569,6 +514,61 @@ export default function DashboardPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => scrollCarousel(featuredRef, 'right')}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </section>
+
+            {/* Just For You Carousel (moved below) */}
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">Just For You</h2>
+                  <p className="text-sm text-gray-600">
+                    Personalized recommendations based on your activity
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/services/all', { state: { services: justForYouServices, title: 'Just For You', subtitle: 'Personalized recommendations based on your activity' } })}
+                  className="self-start sm:self-auto"
+                >
+                  View All
+                </Button>
+              </div>
+              {servicesLoading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading recommendations...
+                </div>
+              ) : justForYouServices.length > 0 ? (
+                <div
+                  ref={justForYouRef}
+                  className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-4 md:overflow-visible md:pb-0"
+                >
+                  {justForYouServices.map((service) => (
+                    <ServiceCard key={service.id} service={service} />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  No personalized recommendations yet
+                </div>
+              )}
+              <div className="mt-4 flex items-center gap-2 justify-start sm:justify-end md:hidden">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => scrollCarousel(justForYouRef, 'left')}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => scrollCarousel(justForYouRef, 'right')}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>

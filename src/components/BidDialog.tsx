@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { useSubmitBid } from '../hooks/useProjects';
+import { supabase } from '../lib/supabase';
 import { DollarSign, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -20,17 +22,42 @@ export function BidDialog({ projectId, projectTitle, trigger, onBidSubmitted }: 
   const [bidAmount, setBidAmount] = useState('');
   const [message, setMessage] = useState('');
   const { submitBid, loading } = useSubmitBid();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Check token balance and redirect if zero
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (uid) {
+        const { data: userRow } = await supabase
+          .from('users')
+          .select('bid_tokens')
+          .eq('id', uid)
+          .single();
+        const current = (userRow as any)?.bid_tokens ?? 0;
+        if (current < 1) {
+          toast.error('You need tokens to place a bid. Please purchase tokens.');
+          navigate('/seller/tokens');
+          return;
+        }
+      }
+    } catch {}
 
     if (!bidAmount || parseFloat(bidAmount) <= 0) {
       toast.error('Please enter a valid bid amount');
       return;
     }
 
+    if (!message || message.trim().length < 150) {
+      toast.error('Please enter a message of at least 150 characters.');
+      return;
+    }
+
     try {
-      await submitBid(projectId, parseFloat(bidAmount), message.trim() || undefined);
+      await submitBid(projectId, parseFloat(bidAmount), message.trim());
       toast.success('Bid submitted successfully!');
       setOpen(false);
       setBidAmount('');

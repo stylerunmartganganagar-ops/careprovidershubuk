@@ -199,6 +199,7 @@ type ApprovalItem = {
   status: ApprovalStatus;
   content: string;
   budget?: number | null;
+  isPremium?: boolean;
 };
 
 type PaymentListItem = {
@@ -276,6 +277,7 @@ export default function AdminPanel() {
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalItem[]>([]);
   const [approvalFilter, setApprovalFilter] = useState<'all' | ApprovalStatus>('all');
   const [approvalTypeFilter, setApprovalTypeFilter] = useState<'all' | 'service_posting' | 'project_posting'>('all');
+  const [approvalPremiumFilter, setApprovalPremiumFilter] = useState<'all' | 'premium' | 'non_premium'>('all');
 
   // Admin user management
   const [usersList, setUsersList] = useState<Array<{
@@ -447,6 +449,72 @@ export default function AdminPanel() {
     }
   }, []);
 
+  const loadCreatedOrders = useCallback(async () => {
+    try {
+      // Load regular orders
+      const { data: regularOrders, error: regularError } = await supabase
+        .from('orders')
+        .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, proposal_message_id')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (regularError) throw regularError;
+      // Load milestone orders
+      const { data: milestoneOrders, error: milestoneError } = await supabase
+        .from('milestone_orders')
+        .select('id, title, buyer_id, provider_id, total_amount, status, created_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (milestoneError) throw milestoneError;
+      // Combine and normalize the data
+      const normalizedRegularOrders = (regularOrders || []).map(order => ({
+        id: order.id,
+        title: order.title,
+        buyer_id: order.buyer_id,
+        provider_id: order.provider_id,
+        price: order.price,
+        status: order.status,
+        created_at: order.created_at,
+        order_type: 'regular' as const,
+      }));
+      const normalizedMilestoneOrders = (milestoneOrders || []).map(order => ({
+        id: order.id,
+        title: order.title,
+        buyer_id: order.buyer_id,
+        provider_id: order.provider_id,
+        price: order.total_amount,
+        status: order.status,
+        created_at: order.created_at,
+        order_type: 'milestone' as const,
+      }));
+      // Combine both types and sort by created_at
+      const allOrders = [...normalizedRegularOrders, ...normalizedMilestoneOrders]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 100);
+      if (isMountedRef.current) {
+        setCreatedOrders(allOrders);
+      }
+    } catch (e) {
+      console.error('Error loading created orders', e);
+    }
+  }, []);
+
+  const loadAcceptedOrders = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date')
+        .neq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      if (isMountedRef.current) {
+        setAcceptedOrders(data || []);
+      }
+    } catch (e) {
+      console.error('Error loading accepted orders', e);
+    }
+  }, []);
+
   // Sellers management
   const [sellers, setSellers] = useState<SellerListItem[]>([]);
 
@@ -592,7 +660,19 @@ export default function AdminPanel() {
           submittedDate: service.created_at,
           status: (service.approval_status as ApprovalStatus) || 'pending',
           content: service.title ?? 'Service awaiting approval',
+          isPremium: false,
         }));
+
+      // Determine premium buyers
+      let premiumSet = new Set<string>();
+      if (referencedUserIds.size > 0) {
+        const { data: subs } = await (supabase as any)
+          .from('buyer_subscriptions')
+          .select('buyer_id, status')
+          .in('buyer_id', Array.from(referencedUserIds))
+          .eq('status', 'active');
+        premiumSet = new Set<string>((subs || []).map((s: any) => s.buyer_id));
+      }
 
       const projectItems: ApprovalItem[] = projects
         .map((project) => {
@@ -609,11 +689,19 @@ export default function AdminPanel() {
             status: normalizedStatus,
             content: project.title ?? 'Project awaiting approval',
             budget: project.budget ?? null,
+            isPremium: premiumSet.has(project.user_id),
           };
         });
 
       const combined = [...serviceItems, ...projectItems]
-        .sort((a, b) => new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime())
+        .sort((a, b) => {
+          // Premium first
+          const ap = a.isPremium ? 1 : 0;
+          const bp = b.isPremium ? 1 : 0;
+          if (ap !== bp) return bp - ap;
+          // Then by submitted date desc
+          return new Date(b.submittedDate).getTime() - new Date(a.submittedDate).getTime();
+        })
         .slice(0, 20);
 
       console.log(`loadApprovals: Final result - ${combined.length} total items`);
@@ -681,75 +769,6 @@ export default function AdminPanel() {
         }
       } catch (e) {
         console.error('Error loading overview stats', e);
-      }
-    };
-
-    const loadCreatedOrders = async () => {
-      try {
-        // Load regular orders
-        const { data: regularOrders, error: regularError } = await supabase
-          .from('orders')
-          .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date, proposal_message_id')
-          .order('created_at', { ascending: false })
-          .limit(100);
-
-        if (regularError) throw regularError;
-
-        // Load milestone orders
-        const { data: milestoneOrders, error: milestoneError } = await supabase
-          .from('milestone_orders')
-          .select('id, title, buyer_id, provider_id, total_amount, status, created_at')
-          .order('created_at', { ascending: false })
-          .limit(100);
-
-        if (milestoneError) throw milestoneError;
-
-        // Combine and normalize the data
-        const normalizedRegularOrders = (regularOrders || []).map(order => ({
-          id: order.id,
-          title: order.title,
-          buyer_id: order.buyer_id,
-          provider_id: order.provider_id,
-          price: order.price,
-          status: order.status,
-          created_at: order.created_at,
-          order_type: 'regular' as const,
-        }));
-
-        const normalizedMilestoneOrders = (milestoneOrders || []).map(order => ({
-          id: order.id,
-          title: order.title,
-          buyer_id: order.buyer_id,
-          provider_id: order.provider_id,
-          price: order.total_amount,
-          status: order.status,
-          created_at: order.created_at,
-          order_type: 'milestone' as const,
-        }));
-
-        // Combine both types and sort by created_at
-        const allOrders = [...normalizedRegularOrders, ...normalizedMilestoneOrders]
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-          .slice(0, 100);
-
-        setCreatedOrders(allOrders);
-      } catch (e) {
-        console.error('Error loading created orders', e);
-      }
-    };
-
-    const loadAcceptedOrders = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('id, title, buyer_id, provider_id, price, status, created_at, delivery_date')
-          .neq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .limit(100);
-        if (error) throw error;
-        setAcceptedOrders(data || []);
-      } catch (e) {
-        console.error('Error loading accepted orders', e);
       }
     };
 
@@ -1721,6 +1740,16 @@ export default function AdminPanel() {
               <SelectItem value="rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={approvalPremiumFilter} onValueChange={(value) => setApprovalPremiumFilter(value as 'all' | 'premium' | 'non_premium')}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Premium filter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Buyers</SelectItem>
+              <SelectItem value="premium">Premium Buyers</SelectItem>
+              <SelectItem value="non_premium">Non‑Premium Buyers</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -1732,6 +1761,16 @@ export default function AdminPanel() {
           .filter((approval) => 
             approvalFilter === 'all' || approval.status === approvalFilter
           )
+          .filter((approval) => {
+            if (approval.type !== 'project_posting') {
+              // premium filter applies to buyer project postings only
+              return approvalPremiumFilter === 'all';
+            }
+            if (approvalPremiumFilter === 'all') return true;
+            if (approvalPremiumFilter === 'premium') return Boolean(approval.isPremium);
+            if (approvalPremiumFilter === 'non_premium') return !approval.isPremium;
+            return true;
+          })
           .map((approval) => (
           <Card key={approval.id}>
             <CardContent className="p-6">
@@ -1742,7 +1781,12 @@ export default function AdminPanel() {
                   </Avatar>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-2">
-                      <span className="font-semibold">{approval.user.name}</span>
+                      <span className="font-semibold flex items-center gap-1">
+                        {approval.user.name}
+                        {approval.isPremium && approval.type === 'project_posting' && (
+                          <Crown className="h-4 w-4 text-yellow-500" />
+                        )}
+                      </span>
                       <span className="text-gray-500">{approval.user.email}</span>
                       <Badge variant="outline" className="text-xs">
                         {approval.type === 'service_posting' ? 'SERVICE' : 'PROJECT'}

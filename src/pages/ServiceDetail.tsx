@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useServiceDetail, useServiceReviews, useRelatedServices, useSellerPortfolio } from '../hooks/useProjects';
 import { useAuth } from '../lib/auth.tsx';
+import { supabase } from '../lib/supabase';
 
 export default function ServiceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -42,8 +43,8 @@ export default function ServiceDetail() {
 
   const { service, loading, error } = useServiceDetail(id);
   const { reviews } = useServiceReviews(id);
-  const { services: relatedServices } = useRelatedServices(id, currentService?.category);
-  const { portfolioItems } = useSellerPortfolio(currentService?.provider_id);
+  const { services: relatedServices } = useRelatedServices(id, service?.category);
+  const { portfolioItems } = useSellerPortfolio(service?.provider_id);
   const { user } = useAuth();
 
   // Enrich service with calculated ratings from reviews

@@ -24,6 +24,8 @@ import {
   CreditCard,
   LogOut,
   TrendingUp,
+  Crown,
+  Coins,
 } from 'lucide-react';
 
 import { MessageDrawer } from './MessageDrawer';
@@ -168,6 +170,10 @@ export function HeaderUserMenu() {
 
             {isBuyer && (
               <>
+                <DropdownMenuItem onClick={() => navigate('/plans')}>
+                  <Crown className="mr-2 h-4 w-4" />
+                  <span>Buyer Pro Plan</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/my-orders')}>
                   <Package className="mr-2 h-4 w-4" />
                   <span>My Orders</span>
@@ -188,6 +194,14 @@ export function HeaderUserMenu() {
                 <DropdownMenuItem onClick={() => user?.id && navigate(`/home/sellers/${user.id}`)}>
                   <TrendingUp className="mr-2 h-4 w-4" />
                   <span>Seller Dashboard</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/seller/tokens')}>
+                  <Coins className="mr-2 h-4 w-4" />
+                  <span>Buy Tokens</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate('/seller/wallet')}>
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  <span>Token Wallet</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/seller/services')}>
                   <Package className="mr-2 h-4 w-4" />

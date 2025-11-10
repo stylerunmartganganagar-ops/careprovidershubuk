@@ -135,7 +135,8 @@ export default function BidProject() {
     }
 
     if (!canBid) {
-      toast.error('You do not have enough tokens to place a bid.');
+      toast.error('You need tokens to place a bid. Please purchase tokens.');
+      navigate('/seller/tokens');
       return;
     }
 
@@ -147,6 +148,11 @@ export default function BidProject() {
 
     if (!deliveryDays.trim()) {
       toast.error('Please provide an estimated delivery timeline.');
+      return;
+    }
+
+    if (!coverLetter.trim() || coverLetter.trim().length < 150) {
+      toast.error('Please enter a message of at least 150 characters.');
       return;
     }
 
@@ -172,10 +178,8 @@ export default function BidProject() {
         return;
       }
 
-      const bidMessage = coverLetter.trim()
-        ? `${coverLetter.trim()}
-\n\nProposed delivery: ${deliveryDays.trim()} day(s)`
-        : `Proposed delivery: ${deliveryDays.trim()} day(s)`;
+      const bidMessage = `${coverLetter.trim()}
+\n\nProposed delivery: ${deliveryDays.trim()} day(s)`;
 
       const { data: bidRow, error: bidError } = await supabaseClient
         .from('bids')
@@ -192,9 +196,8 @@ export default function BidProject() {
 
       const { data: updatedUser, error: tokenError } = await supabaseClient
         .from('users')
-        .update({ bid_tokens: (bidTokens ?? 1) - 1 })
+        .update({ bid_tokens: Math.max(0, (bidTokens ?? 1) - 1) })
         .eq('id', user.id)
-        .eq('bid_tokens', bidTokens)
         .select('bid_tokens')
         .single();
 

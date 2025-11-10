@@ -385,6 +385,18 @@ export function useSubmitBid() {
       const sellerId = authData?.user?.id;
       if (!sellerId) throw new Error('Not authenticated');
 
+      // Check token balance first
+      const { data: userRow, error: userErr } = await (supabase as any)
+        .from('users')
+        .select('bid_tokens')
+        .eq('id', sellerId)
+        .single();
+      if (userErr) throw userErr;
+      const currentTokens = (userRow as any)?.bid_tokens ?? 0;
+      if (currentTokens < 1) {
+        throw new Error('You do not have enough tokens to place a bid.');
+      }
+
       const { data, error } = await (supabase as any)
         .from('bids')
         .insert({
@@ -397,6 +409,13 @@ export function useSubmitBid() {
         .single();
 
       if (error) throw error;
+
+      // Deduct 1 token after successful bid insert
+      const { error: tokenErr } = await (supabase as any)
+        .from('users')
+        .update({ bid_tokens: Math.max(0, (currentTokens ?? 0) - 1) })
+        .eq('id', sellerId);
+      if (tokenErr) throw tokenErr;
       try {
         const { data: proj } = await (supabase as any)
           .from('projects')

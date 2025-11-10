@@ -19,11 +19,14 @@ import {
   Eye
 } from 'lucide-react';
 import { useBuyerProjects } from '../hooks/useProjects';
+import { Crown } from 'lucide-react';
+import { useIsPro } from '../hooks/usePro';
 
 export default function MyProjectsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { projects, loading, error } = useBuyerProjects(user?.id);
+  const { isPro } = useIsPro(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -220,7 +223,10 @@ export default function MyProjectsPage() {
               <Card key={project.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-lg line-clamp-2">{project.title}</CardTitle>
+                    <CardTitle className="text-lg line-clamp-2 flex items-center gap-2">
+                      {project.title}
+                      {isPro && <Crown className="h-4 w-4 text-yellow-500" />}
+                    </CardTitle>
                     <Badge className={getStatusColor(project.status)}>
                       {project.status}
                     </Badge>

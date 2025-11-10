@@ -7,6 +7,8 @@ import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { toast } from 'sonner';
 import { Coins, Zap, CheckCircle, Loader2 } from 'lucide-react';
+import { SellerDashboardLayout } from '../components/SellerDashboardLayout';
+import { Footer } from '../components/Footer';
 
 type TokenPlan = {
   id: string;
@@ -34,6 +36,7 @@ type TokenPurchase = {
 
 export default function TokenPurchasePage() {
   const { user } = useAuth();
+  const TOKEN_PRICE_GBP = 5;
   const [tokenPlans, setTokenPlans] = useState<TokenPlan[]>([]);
   const [purchases, setPurchases] = useState<TokenPurchase[]>([]);
   const [tokenBalance, setTokenBalance] = useState<number>(0);
@@ -135,32 +138,55 @@ export default function TokenPurchasePage() {
     }
 
     setPurchasingPlan(planSlug);
-    
-    try {
-      const { data, error } = await (supabase.rpc as any)('record_token_purchase', {
-        p_seller_id: user.id,
-        p_plan_slug: planSlug
-      }) as { data: any; error: any };
 
-      if (error) throw error;
-      if (!data) throw new Error('No data returned from server');
-      
+    try {
+      const plan = tokenPlans.find((p) => p.slug === planSlug);
+      if (!plan) throw new Error('Plan not found');
+
+      // Simulate a short processing delay (gateway-less flow)
+      await new Promise((res) => setTimeout(res, 900));
+
+      // Update user's token balance
+      const { data: updatedUser, error: updateErr } = await supabase
+        .from('users')
+        .update({ bid_tokens: tokenBalance + plan.tokens })
+        .eq('id', user.id)
+        .select('bid_tokens')
+        .single();
+      if (updateErr) throw updateErr;
+
+      // Record the purchase for audit/history
+      const amount = plan.tokens * TOKEN_PRICE_GBP;
+      const { data: purchaseRow, error: insertErr } = await supabase
+        .from('token_purchases')
+        .insert({
+          seller_id: user.id,
+          plan_id: plan.id,
+          tokens: plan.tokens,
+          amount: amount,
+          currency: 'GBP',
+          status: 'completed',
+        })
+        .select('id, created_at')
+        .single();
+      if (insertErr) throw insertErr;
+
       // Update local state
-      const plan = tokenPlans.find(p => p.slug === planSlug);
-      if (plan) {
-        setTokenBalance(prev => prev + plan.tokens);
-        setPurchases(prev => [{
-          id: data.id || Date.now().toString(),
-          tokens: data.tokens,
-          amount: data.amount,
-          currency: data.currency || 'GBP',
-          status: data.status || 'completed',
-          created_at: data.created_at || new Date().toISOString(),
-          plan: { name: plan.name }
-        }, ...prev]);
-      }
-      
-      toast.success(`Successfully purchased ${plan?.tokens} tokens!`);
+      setTokenBalance(updatedUser?.bid_tokens ?? tokenBalance + plan.tokens);
+      setPurchases((prev) => [
+        {
+          id: purchaseRow?.id || Date.now().toString(),
+          tokens: plan.tokens,
+          amount: amount,
+          currency: 'GBP',
+          status: 'completed',
+          created_at: purchaseRow?.created_at || new Date().toISOString(),
+          plan: { name: plan.name },
+        },
+        ...prev,
+      ]);
+
+      toast.success(`Successfully purchased ${plan.tokens} tokens!`);
     } catch (error: any) {
       console.error('Purchase error:', error);
       toast.error(error.message || 'Failed to process purchase');
@@ -178,6 +204,7 @@ export default function TokenPurchasePage() {
   };
 
   return (
+    <SellerDashboardLayout>
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Token Balance Card */}
       <div className="mb-8">
@@ -227,13 +254,15 @@ export default function TokenPurchasePage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {tokenPlans.map((plan) => (
-              <Card 
-                key={plan.id} 
-                className={`relative overflow-hidden transition-all hover:shadow-lg ${
-                  plan.is_popular ? 'border-2 border-yellow-400' : 'border-gray-200'
-                }`}
-              >
+            {tokenPlans.map((plan) => {
+              const planPrice = plan.tokens * TOKEN_PRICE_GBP;
+              return (
+                <Card 
+                  key={plan.id} 
+                  className={`relative overflow-hidden transition-all hover:shadow-lg ${
+                    plan.is_popular ? 'border-2 border-yellow-400' : 'border-gray-200'
+                  }`}
+                >
                 {plan.is_popular && (
                   <div className="absolute top-0 right-0 bg-yellow-500 text-white text-xs font-semibold px-3 py-1 transform rotate-12 translate-x-8 -translate-y-1">
                     POPULAR
@@ -249,7 +278,7 @@ export default function TokenPurchasePage() {
                     <span className="text-gray-500 ml-1">tokens</span>
                   </div>
                   <div className="flex items-baseline mb-6">
-                    <span className="text-4xl font-bold text-blue-600">£{plan.price.toFixed(2)}</span>
+                    <span className="text-4xl font-bold text-blue-600">£{planPrice.toFixed(2)}</span>
                     <span className="text-gray-500 ml-1">one-time</span>
                   </div>
                 </CardContent>
@@ -271,7 +300,8 @@ export default function TokenPurchasePage() {
                   </Button>
                 </CardFooter>
               </Card>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -347,5 +377,7 @@ export default function TokenPurchasePage() {
         )}
       </section>
     </div>
+    <Footer />
+    </SellerDashboardLayout>
   );
 }
