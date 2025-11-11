@@ -37,32 +37,7 @@ interface PaymentMethod {
 
 export default function PaymentMethods() {
   const navigate = useNavigate();
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
-    {
-      id: '1',
-      type: 'card',
-      isDefault: true,
-      last4: '4242',
-      expiryMonth: 12,
-      expiryYear: 2025,
-      brand: 'Visa'
-    },
-    {
-      id: '2',
-      type: 'card',
-      isDefault: false,
-      last4: '8888',
-      expiryMonth: 6,
-      expiryYear: 2026,
-      brand: 'Mastercard'
-    },
-    {
-      id: '3',
-      type: 'paypal',
-      isDefault: false,
-      email: 'john.smith@example.com'
-    }
-  ]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
 
   const [addCardDialog, setAddCardDialog] = useState(false);
   const [addPaypalDialog, setAddPaypalDialog] = useState(false);

@@ -59,7 +59,7 @@ const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[30
   return (
     <div className={wrapperClassName}>
       <Link to={`/service/${service.id}`} className="block h-full">
-        <Card className="h-full hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer">
+        <Card className="h-[420px] hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer flex flex-col">
           {/* Large Service Image - FIRST GIG IMAGE AS TITLE */}
           <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
             {service.images && service.images.length > 0 ? (
@@ -102,7 +102,7 @@ const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[30
             )}
           </div>
 
-          <CardContent className="p-4">
+          <CardContent className="p-4 flex-grow flex flex-col justify-between">
             {/* Username and Rating */}
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2">

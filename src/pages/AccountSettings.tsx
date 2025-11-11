@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../lib/auth.tsx';
+import { supabase } from '../lib/supabase';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -26,6 +28,49 @@ import {
 
 export default function AccountSettings() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [subscription, setSubscription] = useState<any>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      if (!user?.id) {
+        setSubscriptionLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('buyer_subscriptions')
+          .select(`
+            id,
+            status,
+            created_at,
+            plans (
+              name,
+              price,
+              interval
+            )
+          `)
+          .eq('buyer_id', user.id)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 is "not found" error
+          console.error('Error fetching subscription:', error);
+        } else {
+          setSubscription(data);
+        }
+      } catch (err) {
+        console.error('Error fetching subscription:', err);
+      } finally {
+        setSubscriptionLoading(false);
+      }
+    };
+
+    fetchSubscription();
+  }, [user?.id]);
+
   const [notifications, setNotifications] = useState({
     email: {
       orderUpdates: true,
@@ -488,7 +533,7 @@ export default function AccountSettings() {
                       <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
                         <div>
                           <p className="text-sm font-medium">Current Session</p>
-                          <p className="text-xs text-gray-600">Chrome on Windows • London, UK</p>
+                          <p className="text-xs text-gray-600">Web Browser • {new Date().toLocaleDateString()}</p>
                         </div>
                         <Badge className="bg-green-100 text-green-800">Active</Badge>
                       </div>
@@ -511,12 +556,17 @@ export default function AccountSettings() {
                 <CardContent className="space-y-4">
                   <div>
                     <Label>Account Type</Label>
-                    <p className="text-sm text-gray-600 mt-1">Premium Member</p>
+                    <p className="text-sm text-gray-600 mt-1 capitalize">{user?.role || 'User'}</p>
                   </div>
 
                   <div>
-                    <Label>Member Since</Label>
-                    <p className="text-sm text-gray-600 mt-1">January 2023</p>
+                    <Label>Username</Label>
+                    <p className="text-sm text-gray-600 mt-1">@{user?.username}</p>
+                  </div>
+
+                  <div>
+                    <Label>Email</Label>
+                    <p className="text-sm text-gray-600 mt-1">{user?.email}</p>
                   </div>
 
                   <div>
@@ -527,10 +577,19 @@ export default function AccountSettings() {
                     </div>
                   </div>
 
-                  <div>
-                    <Label>Last Login</Label>
-                    <p className="text-sm text-gray-600 mt-1">Today at 2:30 PM</p>
-                  </div>
+                  {user?.phone && (
+                    <div>
+                      <Label>Phone</Label>
+                      <p className="text-sm text-gray-600 mt-1">{user.phone}</p>
+                    </div>
+                  )}
+
+                  {user?.location && (
+                    <div>
+                      <Label>Location</Label>
+                      <p className="text-sm text-gray-600 mt-1">{user.location}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -539,29 +598,69 @@ export default function AccountSettings() {
                   <CardTitle>Subscription</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <Label>Current Plan</Label>
-                    <p className="text-sm text-gray-600 mt-1">Premium Monthly</p>
-                  </div>
+                  {subscriptionLoading ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"></div>
+                      <p className="text-sm text-gray-600 mt-2">Loading subscription...</p>
+                    </div>
+                  ) : subscription ? (
+                    <>
+                      <div>
+                        <Label>Current Plan</Label>
+                        <p className="text-sm text-gray-600 mt-1">{subscription.plans?.name || 'Pro Plan'}</p>
+                      </div>
 
-                  <div>
-                    <Label>Next Billing Date</Label>
-                    <p className="text-sm text-gray-600 mt-1">January 25, 2024</p>
-                  </div>
+                      <div>
+                        <Label>Status</Label>
+                        <div className="flex items-center mt-1">
+                          <Badge className="bg-green-100 text-green-800">Active</Badge>
+                        </div>
+                      </div>
 
-                  <div>
-                    <Label>Monthly Cost</Label>
-                    <p className="text-sm text-gray-600 mt-1">£29.99</p>
-                  </div>
+                      <div>
+                        <Label>Member Since</Label>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {new Date(subscription.created_at).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long'
+                          })}
+                        </p>
+                      </div>
 
-                  <div className="flex space-x-2">
-                    <Button variant="outline" className="flex-1">
-                      Change Plan
-                    </Button>
-                    <Button variant="outline" className="flex-1">
-                      Cancel Subscription
-                    </Button>
-                  </div>
+                      {subscription.plans?.price && (
+                        <div>
+                          <Label>Monthly Cost</Label>
+                          <p className="text-sm text-gray-600 mt-1">£{subscription.plans.price}</p>
+                        </div>
+                      )}
+
+                      <div className="flex space-x-2">
+                        <Button variant="outline" className="flex-1">
+                          Manage Subscription
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <Label>Current Plan</Label>
+                        <p className="text-sm text-gray-600 mt-1">Free Plan</p>
+                      </div>
+
+                      <div>
+                        <Label>Status</Label>
+                        <div className="flex items-center mt-1">
+                          <Badge variant="secondary">Free</Badge>
+                        </div>
+                      </div>
+
+                      <div className="flex space-x-2">
+                        <Button variant="outline" className="flex-1" onClick={() => navigate('/plans')}>
+                          Upgrade to Pro
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </div>
