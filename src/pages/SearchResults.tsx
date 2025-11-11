@@ -1,30 +1,21 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { DashboardHeader } from '../components/DashboardHeader';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Footer } from '../components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Avatar } from '../components/ui/avatar';
 import { Input } from '../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import {
   Star,
-  MapPin,
   Clock,
-  CheckCircle,
-  Filter,
   Search,
   ArrowLeft,
-  MessageSquare,
-  Calendar,
-  Award
+  Filter
 } from 'lucide-react';
-import { useServices } from '../hooks/useProjects';
-import { useAvailableProjects } from '../hooks/useProjects';
+import { useServices, useAvailableProjects } from '../hooks/useProjects';
 import { useAuth } from '../lib/auth.tsx';
-import { supabase } from '../lib/supabase';
 import { Crown } from 'lucide-react';
 import { useIsPro } from '../hooks/usePro';
 
@@ -32,8 +23,6 @@ interface ServiceCardProps {
   service: any;
   wrapperClassName?: string;
 }
-
-const normalizeKey = (value?: string | null) => (value ? value.trim().toLowerCase() : '');
 
 const serviceIsOnline = (service: any) => {
   if (!service) return false;
@@ -52,20 +41,17 @@ const serviceIsOnline = (service: any) => {
   return flags.some((flag) => Boolean(flag));
 };
 
+const getServiceLocation = (service: any) => {
+  if (!service) return '';
+  const providerLocation = service.provider?.location || service.provider?.raw_user_meta_data?.location;
+  return (providerLocation || service.location || '').trim();
+};
+
+const getProjectLocation = (project: any) => (project?.location || '').trim();
+
 // ServiceCard component - simplified to use provider data directly
 const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ServiceCardProps) => {
-  // Debug: Log what we receive
-  console.log('ServiceCard received service:', {
-    id: service.id,
-    provider_id: service.provider_id,
-    provider: service.provider,
-    hasUsername: !!service.provider?.username
-  });
-
-  // Use username directly from provider data (from database join)
-  const displayUsername = service.provider?.username || 'adventurousdiamond48'; // Fallback to known username
-
-  console.log(`ServiceCard ${service.id}: Using username "${displayUsername}" from provider data`);
+  const displayUsername = service.provider?.username || 'adventurousdiamond48';
 
   const isOnline = serviceIsOnline(service);
 
@@ -252,19 +238,16 @@ const ProjectCard = ({ project, wrapperClassName = 'flex-none w-[260px] sm:w-[30
   );
 };
 
+type FilterOption = 'top-rated' | 'active-now' | 'rating-high-low' | 'price-high-low' | 'price-low-high';
+
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const service = searchParams.get('service') || '';
   const location = searchParams.get('location') || '';
 
-  const [sortBy, setSortBy] = useState('relevance');
-  const [filterBy, setFilterBy] = useState('all');
-  const [showOnlineOnly, setShowOnlineOnly] = useState(false);
-  const [serviceCategoryKey, setServiceCategoryKey] = useState('all');
-  const [serviceSubcategoryKey, setServiceSubcategoryKey] = useState('all');
-  const [projectCategoryKey, setProjectCategoryKey] = useState('all');
-  const [projectSubcategoryKey, setProjectSubcategoryKey] = useState('all');
+  const [activeFilter, setActiveFilter] = useState<FilterOption>('top-rated');
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
 
   const { user } = useAuth();
   const isSeller = user?.role === 'provider';
@@ -276,101 +259,14 @@ export default function SearchResults() {
 
   const loading = servicesLoading || projectsLoading;
 
-  // Get service display name
-  const getServiceDisplayName = (serviceCode: string) => {
-    const serviceMap: { [key: string]: string } = {
-      'cqc': 'CQC Registration',
-      'consulting': 'Business Consulting',
-      'software': 'Care Software',
-      'training': 'Training Services',
-      'visa': 'Sponsor Visa',
-      'accounting': 'Accounting'
-    };
-    return serviceMap[serviceCode] || serviceCode;
-  };
-
   // Filter results by search query and location based on user role
-  const serviceCategoryData = useMemo(() => {
-    const map = new Map<string, { label: string; subs: Map<string, string> }>();
-    const allSubMap = new Map<string, string>();
-
-    services.forEach((svc) => {
-      const rawCategory = svc.category ? svc.category.trim() : '';
-      if (!rawCategory) return;
-      const categoryKey = normalizeKey(rawCategory) || rawCategory.toLowerCase();
-
-      if (!map.has(categoryKey)) {
-        map.set(categoryKey, { label: rawCategory, subs: new Map<string, string>() });
-      }
-
-      const rawSubCategory = svc.subcategory ? svc.subcategory.trim() : '';
-      if (rawSubCategory) {
-        const subKey = normalizeKey(rawSubCategory) || rawSubCategory.toLowerCase();
-        map.get(categoryKey)!.subs.set(subKey, rawSubCategory);
-        allSubMap.set(subKey, rawSubCategory);
-      }
-    });
-
-    return {
-      map,
-      categories: Array.from(map.entries()).map(([value, { label }]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
-      allSubcategories: Array.from(allSubMap.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
-    };
-  }, [services]);
-
-  const projectCategoryData = useMemo(() => {
-    const map = new Map<string, { label: string; subs: Map<string, string> }>();
-    const allSubMap = new Map<string, string>();
-
-    availableProjects.forEach((project) => {
-      const rawCategory = project.category ? project.category.trim() : '';
-      if (!rawCategory) return;
-      const categoryKey = normalizeKey(rawCategory) || rawCategory.toLowerCase();
-
-      if (!map.has(categoryKey)) {
-        map.set(categoryKey, { label: rawCategory, subs: new Map<string, string>() });
-      }
-
-      const rawSubCategory = project.subcategory ? project.subcategory.trim() : '';
-      if (rawSubCategory) {
-        const subKey = normalizeKey(rawSubCategory) || rawSubCategory.toLowerCase();
-        map.get(categoryKey)!.subs.set(subKey, rawSubCategory);
-        allSubMap.set(subKey, rawSubCategory);
-      }
-    });
-
-    return {
-      map,
-      categories: Array.from(map.entries()).map(([value, { label }]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
-      allSubcategories: Array.from(allSubMap.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
-    };
-  }, [availableProjects]);
-
-  const serviceSubcategoryOptions = useMemo(() => {
-    if (serviceCategoryKey === 'all') {
-      return serviceCategoryData.allSubcategories;
-    }
-    const entry = serviceCategoryData.map.get(serviceCategoryKey);
-    if (!entry) return [];
-    return Array.from(entry.subs.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [serviceCategoryKey, serviceCategoryData]);
-
-  const projectSubcategoryOptions = useMemo(() => {
-    if (projectCategoryKey === 'all') {
-      return projectCategoryData.allSubcategories;
-    }
-    const entry = projectCategoryData.map.get(projectCategoryKey);
-    if (!entry) return [];
-    return Array.from(entry.subs.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [projectCategoryKey, projectCategoryData]);
-
-  useEffect(() => {
-    setServiceSubcategoryKey('all');
-  }, [serviceCategoryKey]);
-
-  useEffect(() => {
-    setProjectSubcategoryKey('all');
-  }, [projectCategoryKey]);
+  const ukCities = useMemo(() => (
+    [
+      'London', 'Birmingham', 'Manchester', 'Liverpool', 'Leeds', 'Sheffield', 'Bristol', 'Newcastle',
+      'Nottingham', 'Leicester', 'Coventry', 'Sunderland', 'Brighton', 'Hull', 'Plymouth', 'Stoke-on-Trent',
+      'Wolverhampton', 'Derby', 'Southampton', 'Portsmouth', 'Reading', 'Cardiff', 'Edinburgh', 'Glasgow'
+    ]
+  ), []);
 
   const filteredServices = services.filter(svc => {
     // Match service query against service title, description, features, or category
@@ -381,11 +277,9 @@ export default function SearchResults() {
       svc.category.toLowerCase().includes(service.toLowerCase())
     );
 
-    const locationMatch = !location || (svc.provider?.location && svc.provider.location.toLowerCase().includes(location.toLowerCase()));
-    const categoryMatch = serviceCategoryKey === 'all' || normalizeKey(svc.category) === serviceCategoryKey;
-    const subcategoryMatch = serviceSubcategoryKey === 'all' || normalizeKey(svc.subcategory) === serviceSubcategoryKey;
-    const onlineMatch = !showOnlineOnly || serviceIsOnline(svc);
-    return serviceMatch && locationMatch && categoryMatch && subcategoryMatch && onlineMatch;
+    const locationMatchFromQuery = !location || (svc.provider?.location && svc.provider.location.toLowerCase().includes(location.toLowerCase()));
+    const locationMatchFilter = selectedLocations.length === 0 || selectedLocations.includes(getServiceLocation(svc));
+    return serviceMatch && locationMatchFromQuery && locationMatchFilter;
   });
 
   const filteredProjects = availableProjects.filter(project => {
@@ -396,68 +290,56 @@ export default function SearchResults() {
       project.category.toLowerCase().includes(service.toLowerCase())
     );
 
-    const locationMatch = !location || project.location.toLowerCase().includes(location.toLowerCase());
-    const categoryMatch = projectCategoryKey === 'all' || normalizeKey(project.category) === projectCategoryKey;
-    const subcategoryMatch = projectSubcategoryKey === 'all' || normalizeKey(project.subcategory) === projectSubcategoryKey;
-
-    return projectMatch && locationMatch && categoryMatch && subcategoryMatch;
+    const locationMatchFromQuery = !location || project.location.toLowerCase().includes(location.toLowerCase());
+    const locationMatchFilter = selectedLocations.length === 0 || selectedLocations.includes(getProjectLocation(project));
+    return projectMatch && locationMatchFromQuery && locationMatchFilter;
   });
 
-  // Debug logging
-  console.log('SearchResults Debug:', {
-    userRole: user?.role,
-    isSeller,
-    isBuyer,
-    searchQuery: service,
-    availableProjectsCount: availableProjects.length,
-    filteredProjectsCount: filteredProjects.length,
-    servicesCount: services.length,
-    filteredServicesCount: filteredServices.length,
-    firstFewProjects: availableProjects.slice(0, 3).map(p => ({
-      id: p.id,
-      title: p.title,
-      user_id: p.user_id,
-      status: p.status,
-      category: p.category
-    }))
-  });
+  const applyServiceFilters = useMemo(() => {
+    let servicesList = [...filteredServices];
+    switch (activeFilter) {
+      case 'active-now':
+        servicesList = servicesList.filter(serviceIsOnline);
+        servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
+        break;
+      case 'top-rated':
+        servicesList = servicesList.filter((svc) => (svc.provider?.rating || 0) >= 4.5);
+        servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
+        break;
+      case 'rating-high-low':
+        servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
+        break;
+      case 'price-high-low':
+        servicesList.sort((a, b) => (b.price || 0) - (a.price || 0));
+        break;
+      case 'price-low-high':
+        servicesList.sort((a, b) => (a.price || 0) - (b.price || 0));
+        break;
+      default:
+        break;
+    }
+
+    return servicesList;
+  }, [filteredServices, activeFilter]);
+
+  const applyProjectFilters = useMemo(() => {
+    let projectsList = [...filteredProjects];
+    switch (activeFilter) {
+      case 'price-high-low':
+        projectsList.sort((a, b) => (b.budget || 0) - (a.budget || 0));
+        break;
+      case 'price-low-high':
+        projectsList.sort((a, b) => (a.budget || 0) - (b.budget || 0));
+        break;
+      default:
+        break;
+    }
+
+    return projectsList;
+  }, [filteredProjects, activeFilter]);
 
   const resultsType = isSeller ? 'projects' : 'services';
-
-  const sortedProjects = [...filteredProjects].sort((a, b) => {
-    switch (sortBy) {
-      case 'price-low':
-        return (a.budget || 0) - (b.budget || 0);
-      case 'price-high':
-        return (b.budget || 0) - (a.budget || 0);
-      default:
-        return 0;
-    }
-  });
-
-  const sortedServices = [...filteredServices].sort((a, b) => {
-    const aOnline = serviceIsOnline(a);
-    const bOnline = serviceIsOnline(b);
-
-    if (aOnline !== bOnline) {
-      return Number(bOnline) - Number(aOnline);
-    }
-
-    switch (sortBy) {
-      case 'rating':
-        return (b.provider?.rating || 0) - (a.provider?.rating || 0);
-      case 'price-low':
-        return (a.price || 0) - (b.price || 0);
-      case 'price-high':
-        return (b.price || 0) - (a.price || 0);
-      case 'reviews':
-        return (b.provider?.review_count || 0) - (a.provider?.review_count || 0);
-      default:
-        return 0;
-    }
-  });
-
-  const sortedResults = isSeller ? sortedProjects : sortedServices;
+  const sortedResults = isSeller ? applyProjectFilters : applyServiceFilters;
 
   return (
     <DashboardLayout>
@@ -522,111 +404,65 @@ export default function SearchResults() {
                 {sortedResults.length} {resultsType} available
               </p>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="inline-flex items-center gap-2">
+                  <Filter className="h-4 w-4" />
+                  Filters
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64 max-h-80 overflow-y-auto">
+                <DropdownMenuLabel>Sort &amp; Status</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem
+                  checked={activeFilter === 'top-rated'}
+                  onCheckedChange={() => setActiveFilter('top-rated')}
+                >
+                  Top Rated
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={activeFilter === 'active-now'}
+                  onCheckedChange={() => setActiveFilter('active-now')}
+                >
+                  Active Now
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={activeFilter === 'rating-high-low'}
+                  onCheckedChange={() => setActiveFilter('rating-high-low')}
+                >
+                  Rating High → Low
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={activeFilter === 'price-low-high'}
+                  onCheckedChange={() => setActiveFilter('price-low-high')}
+                >
+                  Price Low → High
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={activeFilter === 'price-high-low'}
+                  onCheckedChange={() => setActiveFilter('price-high-low')}
+                >
+                  Price High → Low
+                </DropdownMenuCheckboxItem>
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 flex-wrap">
-              {isBuyer && (
-                <>
-                  <Button
-                    variant={showOnlineOnly ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setShowOnlineOnly((prev) => !prev)}
-                    className={showOnlineOnly ? 'bg-green-600 hover:bg-green-700 text-white border-green-600' : 'border-green-200 text-green-700 hover:bg-green-50'}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>UK Cities</DropdownMenuLabel>
+                {ukCities.map((city) => (
+                  <DropdownMenuCheckboxItem
+                    key={city}
+                    checked={selectedLocations.includes(city)}
+                    onCheckedChange={(checked) => {
+                      setSelectedLocations((prev) =>
+                        checked
+                          ? [...prev, city]
+                          : prev.filter((loc) => loc !== city)
+                      );
+                    }}
                   >
-                    <span className="relative flex h-2 w-2 mr-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                    </span>
-                    Online now
-                  </Button>
-
-                  {serviceCategoryData.categories.length > 0 && (
-                    <Select value={serviceCategoryKey} onValueChange={setServiceCategoryKey}>
-                      <SelectTrigger className="w-full sm:w-48">
-                        <SelectValue placeholder="All categories" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
-                        {serviceCategoryData.categories.map((category) => (
-                          <SelectItem key={category.value} value={category.value}>
-                            {category.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-
-                  {serviceSubcategoryOptions.length > 0 && (
-                    <Select value={serviceSubcategoryKey} onValueChange={setServiceSubcategoryKey}>
-                      <SelectTrigger className="w-full sm:w-48">
-                        <SelectValue placeholder="All subcategories" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Subcategories</SelectItem>
-                        {serviceSubcategoryOptions.map((subcategory) => (
-                          <SelectItem key={subcategory.value} value={subcategory.value}>
-                            {subcategory.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </>
-              )}
-
-              {isSeller && (
-                <>
-                  {projectCategoryData.categories.length > 0 && (
-                    <Select value={projectCategoryKey} onValueChange={setProjectCategoryKey}>
-                      <SelectTrigger className="w-full sm:w-48">
-                        <SelectValue placeholder="All categories" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Categories</SelectItem>
-                        {projectCategoryData.categories.map((category) => (
-                          <SelectItem key={category.value} value={category.value}>
-                            {category.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-
-                  {projectSubcategoryOptions.length > 0 && (
-                    <Select value={projectSubcategoryKey} onValueChange={setProjectSubcategoryKey}>
-                      <SelectTrigger className="w-full sm:w-48">
-                        <SelectValue placeholder="All subcategories" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Subcategories</SelectItem>
-                        {projectSubcategoryOptions.map((subcategory) => (
-                          <SelectItem key={subcategory.value} value={subcategory.value}>
-                            {subcategory.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </>
-              )}
-
-              <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-full sm:w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="relevance">Most Relevant</SelectItem>
-                  {!isSeller && <SelectItem value="rating">Highest Rated</SelectItem>}
-                  <SelectItem value="price-low">Price: Low to High</SelectItem>
-                  <SelectItem value="price-high">Price: High to Low</SelectItem>
-                  {!isSeller && <SelectItem value="reviews">Most Reviews</SelectItem>}
-                </SelectContent>
-              </Select>
-
-              <Button variant="outline" className="w-full sm:w-auto">
-                <Filter className="h-4 w-4 mr-2" />
-                Filters
-              </Button>
-            </div>
+                    {city}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
