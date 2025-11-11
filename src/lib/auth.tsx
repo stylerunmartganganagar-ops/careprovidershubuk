@@ -23,6 +23,7 @@ interface User {
   is_verified?: boolean;
   rating?: number;
   review_count?: number;
+  seller_level?: 'level0' | 'level1' | 'level2';
 }
 
 interface AuthContextType {
@@ -145,7 +146,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       avatar: supabaseUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.id}`,
       role: supabaseUser.user_metadata?.role || 'client',
       phone_verified: '',
-      description: ''
+      description: '',
+      seller_level: (supabaseUser.user_metadata?.seller_level as User['seller_level']) || 'level0'
     };
 
     console.log('Setting initial user data:', initialUserData);
@@ -183,7 +185,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           avatar: (profile as DBProfile).avatar || initialUserData.avatar,
           role: (profile as DBProfile).role || initialUserData.role,
           phone_verified: '',
-          description: ''
+          description: '',
+          seller_level: ((profile as DBProfile).seller_level as User['seller_level']) || 'level0'
         };
         setUser(updatedUserData);
         console.log('Updated user with existing profile data:', updatedUserData);
@@ -198,6 +201,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             email: supabaseUser.email,
             name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
             username: username, // Always create username during profile creation
+            seller_level: 'level0',
             role: supabaseUser.user_metadata?.role || 'client',
             avatar: supabaseUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.id}`,
           }, { onConflict: 'id' })

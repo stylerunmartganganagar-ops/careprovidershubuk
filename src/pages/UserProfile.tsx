@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../lib/supabase';
+import { toast } from 'sonner';
 import {
   ArrowLeft,
   User,
@@ -28,10 +29,13 @@ import {
   Calendar,
   Building,
   Shield,
-  CheckCircle
+  CheckCircle,
+  UploadCloud,
+  Loader2
 } from 'lucide-react';
 import { Crown } from 'lucide-react';
 import { useIsPro } from '../hooks/usePro';
+import { uploadToCloudinary } from '../lib/cloudinary';
 
 type ProfileData = {
   name: string;
@@ -45,6 +49,7 @@ type ProfileData = {
   linkedin: string;
   experience: string;
   specializations: string[];
+  avatarUrl?: string;
 };
 
 type ProfileStats = {
@@ -77,6 +82,7 @@ export default function UserProfile() {
     linkedin: '',
     experience: '',
     specializations: [],
+    avatarUrl: user?.avatar,
   };
 
   const [profileData, setProfileData] = useState<ProfileData>(defaultProfile);
@@ -84,6 +90,7 @@ export default function UserProfile() {
   const [isEditing, setIsEditing] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [specializationsInput, setSpecializationsInput] = useState('');
@@ -138,6 +145,7 @@ export default function UserProfile() {
           setErrorMessage('Failed to load profile data');
         } else if (profile) {
           const userProfile = profile as UsersRow;
+          const avatarSource = userProfile.avatar || user?.avatar || undefined;
           const loadedProfile: ProfileData = {
             name: userProfile.name || '',
             email: userProfile.email || '',
@@ -150,9 +158,16 @@ export default function UserProfile() {
             linkedin: userProfile.linkedin || '',
             experience: userProfile.experience || '',
             specializations: userProfile.specializations || [],
+            avatarUrl: avatarSource,
           };
           setProfileData(loadedProfile);
           setOriginalProfileData(loadedProfile);
+
+          if (avatarSource && user) {
+            (supabase.auth.setSession as any)?.({
+              access_token: '',
+            });
+          }
         }
       } catch (error) {
         console.error('Error loading profile:', error);
@@ -185,6 +200,7 @@ export default function UserProfile() {
         let activeProjects = 0;
         let totalReviews = 0;
         let avgBuyerRating = 0; // Declare at function scope
+        let providerRating = userDataTyped.rating || 0;
 
         if (isProvider) {
           // For providers: count orders they've completed as sellers
@@ -205,9 +221,18 @@ export default function UserProfile() {
             .select('*', { count: 'exact', head: true })
             .eq('reviewee_id', user.id);
 
+          const { data: providerReviews } = await supabase
+            .from('reviews')
+            .select('rating')
+            .eq('reviewee_id', user.id);
+
           completedProjects = completedCount || 0;
           activeProjects = activeCount || 0;
           totalReviews = reviewCount || 0;
+          if (providerReviews && providerReviews.length > 0) {
+            const sum = providerReviews.reduce((acc: number, review: { rating: number | null }) => acc + (review.rating || 0), 0);
+            providerRating = providerReviews.length ? sum / providerReviews.length : 0;
+          }
         } else {
           // For clients: count orders they've placed
           const { count: completedCount } = await supabase
@@ -255,7 +280,7 @@ export default function UserProfile() {
           completedProjects,
           activeProjects,
           totalReviews,
-          rating: isProvider ? (userDataTyped.rating || 0) : avgBuyerRating,
+          rating: isProvider ? providerRating : avgBuyerRating,
           accountAge: new Date(userDataTyped.created_at),
           isVerified: userDataTyped.is_verified || false,
           isProvider,
@@ -264,7 +289,7 @@ export default function UserProfile() {
         setStats({
           orders: completedProjects,
           reviews: totalReviews,
-          rating: isProvider ? (userDataTyped.rating || 0) : avgBuyerRating,
+          rating: parseFloat((isProvider ? providerRating : avgBuyerRating).toFixed(1)),
           memberSince: new Date(userDataTyped.created_at).getFullYear().toString(),
           completedProjects,
           activeProjects,
@@ -391,6 +416,10 @@ export default function UserProfile() {
     );
   }
 
+  function setUserAvatar(url: string) {
+    throw new Error('Function not implemented.');
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader />
@@ -438,14 +467,50 @@ export default function UserProfile() {
                 <div className="text-center">
                   <div className="relative inline-block mb-4">
                     <Avatar className="h-24 w-24">
-                      <img src={user?.avatar} alt={user?.name} />
+                      <img src={user?.avatar || profileData.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.id}`} alt={profileData.name} />
                     </Avatar>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="avatar-upload"
+                      className="hidden"
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        if (!file || !user?.id) return;
+
+                        setUploadingAvatar(true);
+                        try {
+                          const url = await uploadToCloudinary(file, {
+                            folder: 'user-avatars',
+                            public_id: `avatar_${user.id}`,
+                          });
+
+                          const { error } = await supabase
+                            .from('users')
+                            .update({ avatar: url })
+                            .eq('id', user.id);
+
+                          if (error) throw error;
+
+                          await setUserAvatar(url);
+                          setProfileData(prev => ({ ...prev, avatarUrl: url }));
+                          toast.success('Profile logo updated');
+                        } catch (uploadError) {
+                          console.error('Avatar upload failed:', uploadError);
+                          toast.error('Failed to upload logo. Please try again.');
+                        } finally {
+                          setUploadingAvatar(false);
+                        }
+                      }}
+                    />
                     <Button
                       size="sm"
                       variant="outline"
                       className="absolute -bottom-2 -right-2 rounded-full p-2"
+                      onClick={() => document.getElementById('avatar-upload')?.click()}
+                      disabled={uploadingAvatar}
                     >
-                      <Camera className="h-4 w-4" />
+                      {uploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
                     </Button>
                   </div>
 
@@ -458,7 +523,7 @@ export default function UserProfile() {
 
                   <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">{stats.rating}</div>
+                      <div className="text-2xl font-bold text-primary">{stats.rating.toFixed(1)}</div>
                       <div className="text-xs text-gray-500 flex items-center justify-center">
                         <Star className="h-3 w-3 fill-yellow-400 text-yellow-400 mr-1" />
                         Rating

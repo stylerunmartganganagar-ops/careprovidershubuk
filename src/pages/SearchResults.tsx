@@ -200,6 +200,9 @@ const ProjectCard = ({ project, wrapperClassName = 'flex-none w-[260px] sm:w-[30
           </div>
           <div className="flex flex-wrap items-center gap-2 mt-2">
             <Badge variant="outline" className="text-xs">{project.category}</Badge>
+            {project.subcategory && (
+              <Badge variant="outline" className="text-xs">{project.subcategory}</Badge>
+            )}
             <Badge
               variant={
                 project.urgency === 'high' ? 'destructive' :
@@ -244,6 +247,7 @@ export default function SearchResults() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const service = searchParams.get('service') || '';
+  const serviceLower = service.toLowerCase();
   const location = searchParams.get('location') || '';
 
   const [activeFilter, setActiveFilter] = useState<FilterOption>('top-rated');
@@ -271,10 +275,10 @@ export default function SearchResults() {
   const filteredServices = services.filter(svc => {
     // Match service query against service title, description, features, or category
     const serviceMatch = !service || (
-      svc.title.toLowerCase().includes(service.toLowerCase()) ||
-      svc.description.toLowerCase().includes(service.toLowerCase()) ||
-      (svc.tags && svc.tags.some(tag => tag.toLowerCase().includes(service.toLowerCase()))) ||
-      svc.category.toLowerCase().includes(service.toLowerCase())
+      svc.title.toLowerCase().includes(serviceLower) ||
+      svc.description.toLowerCase().includes(serviceLower) ||
+      (svc.tags && svc.tags.some(tag => tag.toLowerCase().includes(serviceLower))) ||
+      svc.category.toLowerCase().includes(serviceLower)
     );
 
     const locationMatchFromQuery = !location || (svc.provider?.location && svc.provider.location.toLowerCase().includes(location.toLowerCase()));
@@ -285,9 +289,10 @@ export default function SearchResults() {
   const filteredProjects = availableProjects.filter(project => {
     // Match project query against project title, description, or category
     const projectMatch = !service || (
-      project.title.toLowerCase().includes(service.toLowerCase()) ||
-      project.description.toLowerCase().includes(service.toLowerCase()) ||
-      project.category.toLowerCase().includes(service.toLowerCase())
+      project.title.toLowerCase().includes(serviceLower) ||
+      project.description.toLowerCase().includes(serviceLower) ||
+      project.category.toLowerCase().includes(serviceLower) ||
+      (project.subcategory ? project.subcategory.toLowerCase().includes(serviceLower) : false)
     );
 
     const locationMatchFromQuery = !location || project.location.toLowerCase().includes(location.toLowerCase());

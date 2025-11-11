@@ -237,6 +237,30 @@ export default function SellerDashboard() {
 
         console.log('📈 SELLER DASHBOARD: SETTING NEW STATS:', newStats);
         setRealStats(newStats);
+
+        if (user.role === 'provider') {
+          let computedLevel: 'level0' | 'level1' | 'level2' = 'level0';
+          if (totalEarnings >= 5000) {
+            computedLevel = 'level2';
+          } else if (totalEarnings >= 2000) {
+            computedLevel = 'level1';
+          }
+          if (avgRating < 4) {
+            computedLevel = 'level0';
+          }
+
+          if (computedLevel !== user.seller_level) {
+            try {
+              await supabase
+                .from('users')
+                .update({ seller_level: computedLevel })
+                .eq('id', user.id);
+            } catch (levelErr) {
+              console.error('Error updating seller level:', levelErr);
+            }
+          }
+        }
+
         console.log('✅ SELLER DASHBOARD: STATS UPDATED SUCCESSFULLY');
       } catch (error) {
         console.error('Error fetching seller stats:', error);
@@ -764,41 +788,7 @@ export default function SellerDashboard() {
           </div>
         </section>
         {/* Search Bar */}
-        <section className="bg-white rounded-lg border p-6 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-bold">Find Projects to Bid On</h2>
-              <p className="text-gray-600">Search for projects that match your skills</p>
-            </div>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-            <Input
-              placeholder="Search projects by title, description, or category..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-3 text-lg"
-            />
-          </div>
-          {searchQuery && (
-            <div className="mt-3 flex items-center justify-between text-sm text-gray-600">
-              <span>
-                {isSearching ? 'Searching...' : `${searchResults.length} projects found`}
-              </span>
-              {searchQuery && (
-                <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSearchResults([]);
-                  }}
-                  className="text-blue-600 hover:text-blue-800"
-                >
-                  Clear search
-                </button>
-              )}
-            </div>
-          )}
-        </section>
+        
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
@@ -1244,25 +1234,12 @@ export default function SellerDashboard() {
                 <CardContent className="p-6">
                   <div className="space-y-4">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Available for withdrawal</span>
-                      <span className="font-semibold text-green-600">£{realStats.earnings.available.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Pending clearance</span>
-                      <span className="font-semibold">£{realStats.earnings.pending.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-gray-600">Total earned</span>
                       <span className="font-semibold">£{realStats.earnings.total.toLocaleString()}</span>
                     </div>
-                    <div className="pt-2 border-t">
-                      <Button 
-                        className="w-full" 
-                        variant="outline"
-                        onClick={() => navigate('/seller/earnings')}
-                      >
-                        Withdraw Earnings
-                      </Button>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total spent</span>
+                      <span className="font-semibold">£{realStats.earnings.spent?.toLocaleString() ?? '0'}</span>
                     </div>
                   </div>
                 </CardContent>
