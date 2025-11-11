@@ -3,16 +3,19 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Search, MapPin } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import heroBackground from "@/assets/hero-background.jpg";
 import SignupUser from "@/pages/SignupUser";
 import { useAuth } from "@/lib/auth.tsx";
+import { useCategories } from "@/hooks/useCategories";
 
 const popularSearches = [];
 // Database queries will populate this array; currently empty
@@ -23,6 +26,16 @@ export const Hero = () => {
   const [showSignupModal, setShowSignupModal] = useState(false);
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { categories, loading: categoriesLoading, error: categoriesError } = useCategories();
+
+  const categoryGroups = useMemo(() => {
+    if (!categories) return [];
+    return categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      subcategories: category.subcategories || [],
+    }));
+  }, [categories]);
 
   // Close signup modal when user becomes authenticated (e.g., after email confirmation)
   useEffect(() => {
@@ -47,31 +60,10 @@ export const Hero = () => {
 
   const handlePopularSearch = (service: string) => {
     if (!isAuthenticated) {
-      // Show 4-step signup modal with pre-selected service
-      const serviceMap: { [key: string]: string } = {
-        "CQC Registration": "cqc",
-        "Care Software": "software",
-        "Sponsor Visa": "visa",
-        "Health & Safety": "training",
-        "Accountants": "accounting",
-        "PPE Suppliers": "consulting"
-      };
-      const serviceCode = serviceMap[service] || "consulting";
-      setSelectedService(serviceCode);
+      setSelectedService(service);
       setShowSignupModal(true);
     } else {
-      // Navigate to search results for authenticated users
-      const serviceMap: { [key: string]: string } = {
-        "CQC Registration": "cqc",
-        "Care Software": "software",
-        "Sponsor Visa": "visa",
-        "Health & Safety": "training",
-        "Accountants": "accounting",
-        "PPE Suppliers": "consulting"
-      };
-
-      const serviceCode = serviceMap[service] || "consulting";
-      navigate(`/searchresults?service=${serviceCode}`);
+      navigate(`/searchresults?service=${encodeURIComponent(service)}`);
     }
   };
   return (
@@ -101,17 +93,36 @@ export const Hero = () => {
           <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-xl p-3 mb-8 animate-scale-in">
             <div className="flex flex-col md:flex-row gap-3">
               <div className="flex-1">
-                <Select value={selectedService} onValueChange={setSelectedService}>
+                <Select
+                  value={selectedService}
+                  onValueChange={setSelectedService}
+                  disabled={categoriesLoading || categoryGroups.length === 0}
+                >
                   <SelectTrigger className="h-14 text-base">
-                    <SelectValue placeholder="What service are you looking for?" />
+                    <SelectValue
+                      placeholder={
+                        categoriesLoading
+                          ? "Loading categories..."
+                          : categoriesError
+                            ? "Unable to load categories"
+                            : "What service are you looking for?"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cqc">CQC Registration</SelectItem>
-                    <SelectItem value="consulting">Business Consulting</SelectItem>
-                    <SelectItem value="software">Care Software</SelectItem>
-                    <SelectItem value="training">Training Services</SelectItem>
-                    <SelectItem value="visa">Sponsor Visa</SelectItem>
-                    <SelectItem value="accounting">Accounting</SelectItem>
+                    {categoryGroups.map((category) => (
+                      <SelectGroup key={category.id}>
+                        <SelectLabel>{category.name}</SelectLabel>
+                        <SelectItem value={category.name}>
+                          {`All ${category.name}`}
+                        </SelectItem>
+                        {category.subcategories.map((sub) => (
+                          <SelectItem key={sub.id} value={sub.name}>
+                            {sub.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

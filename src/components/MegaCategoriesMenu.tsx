@@ -10,9 +10,9 @@ export function MegaCategoriesMenu() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Keep a stable list so layout does not jitter
-  const topRow = useMemo(() => {
-    return (categories || []).slice(0, 10);
+  // Keep a stable list so layout does not jitter and ensure every category is visible
+  const displayCategories = useMemo(() => {
+    return categories || [];
   }, [categories]);
 
   useEffect(() => {
@@ -70,7 +70,7 @@ export function MegaCategoriesMenu() {
       <div className="container mx-auto px-4">
         {/* Top row category strip */}
         <div className="flex items-center gap-6 overflow-x-auto py-3 text-sm">
-          {topRow.map((cat) => (
+          {displayCategories.map((cat) => (
             <button
               key={cat.id}
               className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700 ${

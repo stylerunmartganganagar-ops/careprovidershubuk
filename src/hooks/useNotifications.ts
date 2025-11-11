@@ -23,6 +23,8 @@ export function useNotifications() {
     if (!user?.id) return;
 
     try {
+      setLoading(true);
+
       // Fetch notifications from database
       const { data: dbNotifications, error } = await supabase
         .from('notifications')
@@ -34,7 +36,7 @@ export function useNotifications() {
       if (error) throw error;
 
       // Transform to our format
-      const transformed = (dbNotifications || []).map(n => ({
+      const transformed: Notification[] = (dbNotifications || []).map(n => ({
         id: n.id,
         title: n.title,
         description: n.description ?? n.message ?? '',
@@ -45,8 +47,61 @@ export function useNotifications() {
         related_id: n.related_id
       }));
 
-      setNotifications(transformed);
-      setUnreadCount(transformed.filter(n => n.unread).length);
+      const bidRelatedIds = new Set(
+        transformed
+          .filter(n => n.type === 'bid' && n.related_id)
+          .map(n => n.related_id as string)
+      );
+
+      // Backfill older bids that never created notifications
+      const { data: ownedProjects, error: projectsError } = await supabase
+        .from('projects')
+        .select('id, title')
+        .eq('user_id', user.id);
+
+      if (projectsError) throw projectsError;
+
+      const projectIds = (ownedProjects || []).map(p => p.id).filter(Boolean);
+
+      let combined = [...transformed];
+
+      if (projectIds.length > 0) {
+        const { data: bidRows, error: bidsError } = await (supabase as any)
+          .from('bids')
+          .select(`id, bid_amount, created_at,
+            seller:users!bids_seller_id_fkey(name, username),
+            project:projects!bids_project_id_fkey(id, title)`)
+          .in('project_id', projectIds)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (bidsError) throw bidsError;
+
+        const syntheticBidNotifications: Notification[] = (bidRows || [])
+          .filter((bid: any) => !bidRelatedIds.has(bid.id))
+          .map((bid: any) => {
+            const sellerName = bid?.seller?.name || bid?.seller?.username || 'A seller';
+            const projectTitle = bid?.project?.title || 'your project';
+            const createdAt = bid?.created_at ? new Date(bid.created_at) : new Date();
+            return {
+              id: `bid-${bid.id}`,
+              title: `Bid from ${sellerName}`,
+              description: `${sellerName} placed a bid of £${Number(bid?.bid_amount ?? 0).toFixed(2)} on your project "${projectTitle}"`,
+              time: formatTimeAgo(createdAt),
+              timestamp: createdAt.toISOString(),
+              unread: false,
+              type: 'bid',
+              related_id: bid?.id
+            } as Notification;
+          });
+
+        combined = [...combined, ...syntheticBidNotifications];
+      }
+
+      combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      setNotifications(combined);
+      setUnreadCount(combined.filter(n => n.unread).length);
 
     } catch (error) {
       console.error('Error fetching notifications:', error);

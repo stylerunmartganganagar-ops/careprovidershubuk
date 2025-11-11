@@ -26,6 +26,7 @@ interface Message {
   metadata?: any;
   is_read?: boolean;
   milestone_order_id?: string;
+  order_tag?: string | null;
 }
 
 interface MessageInsert {
@@ -36,6 +37,7 @@ interface MessageInsert {
   message_type?: string;
   metadata?: any;
   milestone_order_id?: string;
+  order_tag?: string;
 }
 
 interface ChatPartner {
@@ -282,14 +284,16 @@ export default function MessagesPage() {
     }
   }, [user?.id, connectionStatus, lastRefresh]);
 
-  // Load milestones for milestone order start messages
+  // Load milestones for milestone-tagged messages that reference orders
   useEffect(() => {
-    messages.forEach(message => {
-      if (message.message_type === 'milestone_order_start' && message.milestone_order_id && !messageMilestones[message.id]) {
-        loadMessageMilestones(message.milestone_order_id, message.id);
-      }
-    });
-  }, [messages]);
+    messages
+      .filter(message => message.order_tag === 'milestone' && message.milestone_order_id)
+      .forEach(message => {
+        if (!messageMilestones[message.id]) {
+          loadMessageMilestones(message.milestone_order_id!, message.id);
+        }
+      });
+  }, [messages, messageMilestones]);
 
   const setupRealtime = () => {
     const channel = supabase
@@ -333,7 +337,7 @@ export default function MessagesPage() {
       const { data: allMessages, error } = await supabase
         .from('messages')
         .select(`
-          id, sender_id, receiver_id, content, created_at, attachments, message_type, metadata,
+          id, sender_id, receiver_id, content, created_at, attachments, message_type, metadata, milestone_order_id, order_tag,
           sender:users!messages_sender_id_fkey(id, name, username, avatar, role),
           receiver:users!messages_receiver_id_fkey(id, name, username, avatar, role)
         `)
@@ -385,6 +389,8 @@ export default function MessagesPage() {
           attachments: msg.attachments || [],
           message_type: msg.message_type || 'text',
           metadata: msg.metadata || null,
+          milestone_order_id: msg.milestone_order_id,
+          order_tag: msg.order_tag,
           is_read: msg.is_read,
         });
       });
@@ -410,6 +416,8 @@ export default function MessagesPage() {
     const conversation = conversations.find(conv => conv.partner.id === partnerId);
 
     if (conversation) {
+      setMessageMilestones({});
+      setLoadingMilestones(new Set());
       setMessages(conversation.messages);
       setPartnerInfo(conversation.partner);
       setConversations(prev => prev.map(conv =>
@@ -437,6 +445,17 @@ export default function MessagesPage() {
         setAcceptedMilestoneOrderId(null);
         setMilestonesLoaded(false);
       }
+
+      conversation.messages.forEach(msg => {
+        console.log('🧵 Existing conversation message', {
+          id: msg.id,
+          type: msg.message_type,
+          milestoneOrderId: msg.milestone_order_id
+        });
+        if (msg.message_type === 'milestone_order_start' && msg.milestone_order_id) {
+          loadMessageMilestones(msg.milestone_order_id, msg.id, true);
+        }
+      });
     } else {
       // Load messages for new conversation
       const { data: chatMessages } = await supabase
@@ -446,6 +465,8 @@ export default function MessagesPage() {
         .order('created_at', { ascending: true });
 
       const messagesToShow = (chatMessages || []).map(msg => ({ ...msg, is_read: msg.is_read ?? false }));
+      setMessageMilestones({});
+      setLoadingMilestones(new Set());
       setMessages(messagesToShow);
       setPartnerInfo({
         id: partnerId,
@@ -484,6 +505,17 @@ export default function MessagesPage() {
         setAcceptedMilestoneOrderId(null);
         setMilestonesLoaded(false);
       }
+
+      messagesToShow.forEach(msg => {
+        console.log('🆕 Loaded message', {
+          id: msg.id,
+          type: msg.message_type,
+          milestoneOrderId: msg.milestone_order_id
+        });
+        if (msg.message_type === 'milestone_order_start' && msg.milestone_order_id) {
+          loadMessageMilestones(msg.milestone_order_id, msg.id, true);
+        }
+      });
     }
 
     // persist selection per user so it survives refresh
@@ -591,6 +623,7 @@ export default function MessagesPage() {
     const optimisticMessage: Message = {
       id: `optimistic_${Date.now()}`,
       ...messageData,
+      milestone_order_id: messageData.milestone_order_id,
       created_at: new Date().toISOString()
     };
 
@@ -806,15 +839,22 @@ export default function MessagesPage() {
 
     const messageData: MessageInsert = {
       sender_id: user.id,
-      receiver_id: activeChat,
-      content: 'Milestone order accepted ✅',
+      receiver_id: proposalMessage.sender_id,
+      content: 'Milestone order accepted',
       message_type: 'milestone_order_accept',
       milestone_order_id: proposalMessage.milestone_order_id,
-      metadata: { proposal_id: proposalMessage.id },
+      order_tag: 'milestone',
+      metadata: {
+        proposal_id: proposalMessage.id,
+        milestone_order_id: proposalMessage.milestone_order_id,
+        title: proposalMessage.metadata?.title,
+        total_amount: proposalMessage.metadata?.total_amount
+      },
     };
     try {
-      const { data, error } = await (supabase.from('messages') as any)
-        .insert(messageData as any)
+      const { data, error } = await supabase
+        .from('messages')
+        .insert(messageData)
         .select()
         .single();
       if (error) throw error;
@@ -845,10 +885,16 @@ export default function MessagesPage() {
     ));
   };
 
-  const loadMessageMilestones = async (milestoneOrderId: string, messageId: string) => {
-    if (loadingMilestones.has(messageId) || messageMilestones[messageId]) return;
+  const loadMessageMilestones = async (milestoneOrderId: string, messageId: string, force = false) => {
+    if (!force && messageMilestones[messageId]) return;
 
-    setLoadingMilestones(prev => new Set(prev).add(messageId));
+    console.log('🔄 Loading milestones for message', { messageId, milestoneOrderId, force });
+
+    setLoadingMilestones(prev => {
+      const updated = new Set(prev);
+      updated.add(messageId);
+      return updated;
+    });
 
     try {
       const { data, error } = await supabase
@@ -859,12 +905,14 @@ export default function MessagesPage() {
 
       if (error) throw error;
 
+      console.log('✅ Milestones fetched', { messageId, count: data?.length, data });
+
       setMessageMilestones(prev => ({
         ...prev,
         [messageId]: data || []
       }));
     } catch (error) {
-      console.error('Failed to load message milestones', error);
+      console.error('❌ Failed to load message milestones', { messageId, milestoneOrderId, error });
     } finally {
       setLoadingMilestones(prev => {
         const newSet = new Set(prev);
@@ -970,6 +1018,7 @@ export default function MessagesPage() {
         content: `Milestone order proposal: ${meta.title} - ${validMilestones.length} milestone(s) totaling £${totalMilestoneAmount.toFixed(2)}`,
         message_type: 'milestone_order_start',
         milestone_order_id: milestoneOrder.id,
+        order_tag: 'milestone',
         metadata: meta,
       };
 
@@ -1022,6 +1071,10 @@ export default function MessagesPage() {
         <p>Loading messages...</p>
       </div>
     );
+  }
+
+  function acceptIndividualMilestone(milestone: any, message: Message): void {
+    throw new Error('Function not implemented.');
   }
 
   return (

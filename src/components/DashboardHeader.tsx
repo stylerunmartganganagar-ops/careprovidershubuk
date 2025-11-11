@@ -76,12 +76,22 @@ export function DashboardHeader() {
       if (!user?.id) return;
 
       try {
-        // Get active orders count
-        const { count: activeOrdersCount } = await supabase
-          .from('orders')
-          .select('*', { count: 'exact', head: true })
-          .eq('buyer_id', user.id)
-          .in('status', ['pending', 'in_progress']);
+        // Get active orders count (standard + milestone orders)
+        const [
+          { count: activeOrdersCount },
+          { count: activeMilestoneOrdersCount }
+        ] = await Promise.all([
+          supabase
+            .from('orders')
+            .select('*', { count: 'exact', head: true })
+            .eq('buyer_id', user.id)
+            .in('status', ['pending', 'in_progress']),
+          supabase
+            .from('milestone_orders')
+            .select('*', { count: 'exact', head: true })
+            .eq('buyer_id', user.id)
+            .in('status', ['pending', 'in_progress'])
+        ]);
 
         // Get unread messages count
         const { count: unreadMessagesCount } = await supabase
@@ -103,7 +113,7 @@ export function DashboardHeader() {
         ) || 0;
 
         setStats({
-          activeOrders: activeOrdersCount || 0,
+          activeOrders: (activeOrdersCount || 0) + (activeMilestoneOrdersCount || 0),
           unreadMessages: unreadMessagesCount || 0,
           totalSpent
         });

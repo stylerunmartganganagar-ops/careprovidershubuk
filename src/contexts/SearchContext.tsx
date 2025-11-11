@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 
 interface SearchContextType {
   searchQuery: string;
@@ -15,8 +16,7 @@ interface SearchContextType {
 
 const SearchContext = createContext<SearchContextType | undefined>(undefined);
 
-// Mock search suggestions based on healthcare services
-const searchSuggestions = [
+const staticSuggestions = [
   'CQC Registration',
   'Healthcare Compliance Audit',
   'Care Home Licensing',
@@ -39,12 +39,56 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   const [location, setLocation] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [allSuggestions, setAllSuggestions] = useState<string[]>(staticSuggestions);
   const navigate = useNavigate();
+
+  // Load categories and subcategories for suggestions
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSuggestions = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('name, subcategories(name)')
+          .order('name');
+
+        if (error) throw error;
+
+        const collected = new Set<string>(staticSuggestions);
+
+        (data || []).forEach((category: any) => {
+          if (category?.name) {
+            collected.add(category.name);
+          }
+
+          const subs = category?.subcategories || [];
+          subs.forEach((sub: any) => {
+            if (sub?.name) {
+              collected.add(sub.name);
+            }
+          });
+        });
+
+        if (isMounted) {
+          setAllSuggestions(Array.from(collected));
+        }
+      } catch (err) {
+        console.error('Failed to load search suggestions', err);
+      }
+    };
+
+    loadSuggestions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Filter suggestions based on search query
   useEffect(() => {
     if (searchQuery.length > 0) {
-      const filtered = searchSuggestions.filter(suggestion =>
+      const filtered = allSuggestions.filter(suggestion =>
         suggestion.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setSuggestions(filtered.slice(0, 5)); // Limit to 5 suggestions
@@ -53,7 +97,7 @@ export function SearchProvider({ children }: { children: ReactNode }) {
       setSuggestions([]);
       setShowSuggestions(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, allSuggestions]);
 
   const performSearch = (searchTerm?: string) => {
     const termToUse = searchTerm || searchQuery;

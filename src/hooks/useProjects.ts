@@ -388,7 +388,7 @@ export function useSubmitBid() {
       // Check token balance first
       const { data: userRow, error: userErr } = await (supabase as any)
         .from('users')
-        .select('bid_tokens')
+        .select('bid_tokens, name, username')
         .eq('id', sellerId)
         .single();
       if (userErr) throw userErr;
@@ -423,13 +423,16 @@ export function useSubmitBid() {
           .eq('id', projectId)
           .single();
         const ownerId = (proj as any)?.user_id;
+        const sellerName = (userRow as any)?.name || (userRow as any)?.username || 'A seller';
+        const bidId = (data as any)?.id;
         if (ownerId) {
           await (supabase.from('notifications') as any).insert({
             user_id: ownerId,
-            title: 'New bid received',
-            description: `Your project received a new bid of £${bidAmount}`,
+            title: `New bid from ${sellerName}`,
+            description: `${sellerName} placed a bid of £${bidAmount} on your project "${(proj as any)?.title ?? ''}"`,
             type: 'bid',
-            read: false
+            related_id: bidId ?? null,
+            is_read: false
           });
         }
       } catch {}
