@@ -14,7 +14,7 @@ import {
   ArrowLeft,
   Filter
 } from 'lucide-react';
-import { useServices, useAvailableProjects } from '../hooks/useProjects';
+import { dailyShuffle, useServices, useAvailableProjects } from '../hooks/useProjects';
 import { useAuth } from '../lib/auth.tsx';
 import { Crown } from 'lucide-react';
 import { useIsPro } from '../hooks/usePro';
@@ -267,7 +267,27 @@ export default function SearchResults() {
 
   // Data hooks based on user role
   const { services, loading: servicesLoading } = useServices();
+  const shuffledServices = useMemo(() => dailyShuffle(services), [services]);
   const { projects: availableProjects, loading: projectsLoading } = useAvailableProjects(user?.id);
+
+  const isPersonalizedFilter = filterParam === 'personalized';
+  const isSearchesFilter = filterParam === 'searches';
+
+  const personalizedServiceIds = useMemo(() => {
+    if (!isBuyer || services.length === 0) return new Set<string>();
+    const curated = shuffledServices.slice(0, 6);
+    return new Set(curated.map((svc: any) => svc.id));
+  }, [shuffledServices, isBuyer]);
+
+  const searchesServiceIds = useMemo(() => {
+    if (!isBuyer || services.length === 0) return new Set<string>();
+    const curated = shuffledServices.slice(6, 12);
+    const fallback = shuffledServices.slice(0, 6);
+    const source = curated.length > 0 ? curated : fallback;
+    return new Set(source.map((svc: any) => svc.id));
+  }, [shuffledServices, isBuyer]);
+
+  const disableTopRatedThreshold = filterParam === 'featured' || isPersonalizedFilter || isSearchesFilter;
 
   const loading = servicesLoading || projectsLoading;
 
@@ -308,7 +328,12 @@ export default function SearchResults() {
     const featuredMatch = filterParam !== 'featured'
       ? true
       : svc.is_featured === true && (!svc.featured_until || new Date(svc.featured_until) > new Date());
-    return serviceMatch && locationMatchFromQuery && locationMatchFilter && featuredMatch;
+    const curatedMatch = isPersonalizedFilter
+      ? personalizedServiceIds.has(svc.id)
+      : isSearchesFilter
+        ? searchesServiceIds.has(svc.id)
+        : true;
+    return serviceMatch && locationMatchFromQuery && locationMatchFilter && featuredMatch && curatedMatch;
   });
 
   const filteredProjects = availableProjects.filter(project => {
@@ -336,7 +361,7 @@ export default function SearchResults() {
         servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
         break;
       case 'top-rated':
-        if (filterParam !== 'featured') {
+        if (!disableTopRatedThreshold) {
           servicesList = servicesList.filter((svc) => (svc.provider?.rating || 0) >= 4.5);
         }
         servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
@@ -355,7 +380,7 @@ export default function SearchResults() {
     }
 
     return servicesList;
-  }, [filteredServices, activeFilter]);
+  }, [filteredServices, activeFilter, disableTopRatedThreshold]);
 
   const applyProjectFilters = useMemo(() => {
     let projectsList = [...filteredProjects];
@@ -374,7 +399,13 @@ export default function SearchResults() {
   }, [filteredProjects, activeFilter]);
 
   const baseResultsType = isSeller ? 'projects' : 'services';
-  const resultsType = filterParam === 'featured' ? `featured ${baseResultsType}` : baseResultsType;
+  const resultsType = filterParam === 'featured'
+    ? `featured ${baseResultsType}`
+    : filterParam === 'personalized'
+      ? `personalized ${baseResultsType}`
+      : filterParam === 'searches'
+        ? `${baseResultsType} based on your searches`
+        : baseResultsType;
   const sortedResults = useMemo(() => (isSeller ? applyProjectFilters : applyServiceFilters), [applyProjectFilters, applyServiceFilters, isSeller]);
   const totalResults = sortedResults.length;
   const totalPages = Math.max(1, Math.ceil(totalResults / PAGE_SIZE));

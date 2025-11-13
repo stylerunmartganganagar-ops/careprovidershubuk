@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
 import { MobileBottomNavbar } from '../components/MobileBottomNavbar';
@@ -38,11 +38,12 @@ import {
   Activity,
   Target,
   Zap,
-  ImageIcon
+  ImageIcon,
+  Crown
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useBuyerProjects } from '../hooks/useProjects';
-import { useServices } from '../hooks/useProjects';
+import { dailyShuffle, useBuyerProjects, useServices } from '../hooks/useProjects';
+import { useIsPro } from '../hooks/usePro';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
@@ -170,6 +171,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading } = useBuyerProjects(user?.id);
   const { services, loading: servicesLoading } = useServices();
+  const shuffledServices = useMemo(() => dailyShuffle(services), [services]);
+  const { isPro } = useIsPro(user?.id);
 
   const justForYouRef = useRef<HTMLDivElement>(null);
   const featuredRef = useRef<HTMLDivElement>(null);
@@ -367,15 +370,21 @@ export default function DashboardPage() {
     }
   ];
 
-  const justForYouServices = services.slice(0, 6);
+  const justForYouServices = shuffledServices.slice(0, 6);
 
-  const curatedFeaturedServices = services.filter(service => service.price > 500).slice(0, 6);
+  const curatedFeaturedServices = useMemo(() => {
+    const highValue = services.filter(service => service.price > 500);
+    return dailyShuffle(highValue).slice(0, 6);
+  }, [services]);
   const hasCuratedFeatured = curatedFeaturedServices.length > 0;
-  const featuredServices = hasCuratedFeatured ? curatedFeaturedServices : services.slice(0, 6);
+  const featuredServices = hasCuratedFeatured ? curatedFeaturedServices : shuffledServices.slice(0, 6);
 
-  const curatedBasedOnSearches = services.slice(6, 12);
+  const curatedBasedOnSearches = useMemo(() => {
+    const primary = shuffledServices.slice(6, 12);
+    return primary.length > 0 ? primary : shuffledServices.slice(0, 6);
+  }, [shuffledServices]);
   const hasCuratedSearchBased = curatedBasedOnSearches.length > 0;
-  const basedOnSearchesServices = hasCuratedSearchBased ? curatedBasedOnSearches : services.slice(0, 6);
+  const basedOnSearchesServices = hasCuratedSearchBased ? curatedBasedOnSearches : shuffledServices.slice(0, 6);
 
   console.log('🎨 RENDERING DASHBOARD UI with totalSpent:', stats.orders.totalSpent);
 
@@ -399,6 +408,12 @@ export default function DashboardPage() {
                 <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
                   Member since {stats.profile.memberSince}
                 </Badge>
+                {isPro && (
+                  <Badge className="inline-flex items-center rounded-full border font-semibold bg-yellow-400/90 text-xs sm:text-sm text-black border-white/30 px-2.5 py-1 sm:px-3">
+                    <Crown className="mr-1 h-3.5 w-3.5 text-black/80" />
+                    Buyer Pro Member
+                  </Badge>
+                )}
                 <Button 
                   onClick={() => window.location.reload()}
                   variant="outline" 

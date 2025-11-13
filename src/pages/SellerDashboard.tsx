@@ -234,7 +234,7 @@ export default function SellerDashboard() {
 
   // Fetch real stats for the seller
   const [realStats, setRealStats] = useState({
-    earnings: { monthly: 0, weekly: 0, total: 0, pending: 0, available: 0 },
+    earnings: { monthly: 0, weekly: 0, total: 0, pending: 0, available: 0, spent: 0 },
     orders: { active: 0, completed: 0, cancelled: 0, inQueue: 0 },
     reviews: { average: 0, total: 0, fiveStar: 0, responseTime: 0 }
   });
@@ -270,6 +270,16 @@ export default function SellerDashboard() {
 
         console.log('💰 SELLER DASHBOARD: CALCULATED monthlyEarnings:', monthlyEarnings);
 
+        // Get total spend on tokens/subscriptions
+        const { data: tokenPurchases } = await supabase
+          .from('token_purchases')
+          .select('amount, status')
+          .eq('seller_id', user.id);
+
+        const totalSpent = (tokenPurchases || [])
+          .filter((purchase: any) => !purchase.status || purchase.status === 'completed')
+          .reduce((sum: number, purchase: any) => sum + parseFloat(purchase.amount?.toString() || '0'), 0) || 0;
+
         // Get order stats
         const { count: activeOrders } = await supabase
           .from('orders')
@@ -291,7 +301,8 @@ export default function SellerDashboard() {
             weekly: Math.floor(monthlyEarnings * 0.25), // Estimate weekly
             total: totalEarnings,
             pending: Math.floor(totalEarnings * 0.1), // Estimate pending
-            available: Math.floor(totalEarnings * 0.9) // Estimate available
+            available: Math.floor(totalEarnings * 0.9), // Estimate available
+            spent: totalSpent
           },
           orders: {
             active: activeOrders || 0,
@@ -952,17 +963,7 @@ export default function SellerDashboard() {
           </Card>
         </section>
 
-        {/* Performance Metrics */}
-        <section className="mb-8">
-          <h2 className="text-xl font-bold mb-4">Performance Metrics</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="text-center py-8 text-gray-500">
-              No performance metrics available
-            </div>
-          </div>
-        </section>
-
-        {/* Main Content Grid */}
+        {/* Frequently Asked Questions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Project Carousels */}
           <div className="lg:col-span-2 space-y-8">

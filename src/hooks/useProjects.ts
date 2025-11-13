@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 // Deterministic daily shuffle helper
-function dailyShuffle<T>(items: T[]): T[] {
+export function dailyShuffle<T>(items: T[]): T[] {
   if (!Array.isArray(items) || items.length <= 1) return items;
   const today = new Date();
   const seed = Number(
