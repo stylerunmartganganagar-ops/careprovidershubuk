@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
@@ -44,6 +44,35 @@ export default function ProjectDetailPage() {
   const { updateBidStatus, loading: updateLoading } = useUpdateBidStatus();
   const [processingBidId, setProcessingBidId] = useState<string | null>(null);
   const [localBidStatus, setLocalBidStatus] = useState<Record<string, 'accepted' | 'rejected'>>({});
+
+  // Debug: log bids fetched for this project and the resolved seller info
+  useEffect(() => {
+    try {
+      if (!id) return;
+      const summary = (bids || []).map((b) => ({
+        bidId: b.id,
+        projectId: b.project_id,
+        sellerId: b.seller_id,
+        status: b.status,
+        createdAt: b.created_at,
+        seller: {
+          id: b.seller?.id,
+          username: b.seller?.username,
+          name: b.seller?.name,
+        },
+      }));
+      // Grouped console output for easier sharing
+      // Note: does not expose tokens or sensitive data
+      // eslint-disable-next-line no-console
+      console.log('Bids Debug | ProjectDetailPage', {
+        projectId: id,
+        viewerId: user?.id,
+        bidsLoading,
+        bidsCount: bids?.length ?? 0,
+        bids: summary,
+      });
+    } catch (_) {}
+  }, [id, user?.id, bidsLoading, bids]);
 
   if (projectLoading) {
     return (
@@ -216,30 +245,38 @@ export default function ProjectDetailPage() {
                     {bids.map((bid) => {
                       const effectiveStatus = (localBidStatus[bid.id] || bid.status) as 'pending' | 'accepted' | 'rejected';
                       const isProcessing = processingBidId === bid.id;
+                      const seller = bid.seller;
+                      const sellerHandle =
+                        seller?.username ||
+                        seller?.name?.trim() ||
+                        (bid.seller_id ? `seller-${bid.seller_id.slice(0, 8)}` : 'Unknown Seller');
+                      const sellerAvatar = seller?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(sellerHandle)}`;
+                      const sellerRating = typeof seller?.rating === 'number' ? seller.rating : 0;
+                      const sellerReviews = seller?.review_count ?? 0;
                       return (
                       <Card key={bid.id} className="p-4">
                         <div className="flex items-start justify-between">
                           <div className="flex items-start space-x-3">
                             <Avatar className="h-10 w-10">
-                              <img src={bid.seller?.avatar} alt={bid.seller?.name} />
+                              <img src={sellerAvatar} alt={sellerHandle} />
                             </Avatar>
                             <div className="flex-1">
                               <div className="flex items-center space-x-2 mb-1">
-                                <h4 className="font-semibold">{bid.seller?.name}</h4>
-                                {bid.seller?.is_verified && (
+                                <h4 className="font-semibold">{sellerHandle}</h4>
+                                {seller?.is_verified && (
                                   <CheckCircle className="h-4 w-4 text-green-600" />
                                 )}
                               </div>
                               <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
                                 <div className="flex items-center space-x-1">
                                   <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                                  <span>{bid.seller?.rating?.toFixed(1) || '0.0'}</span>
-                                  <span>({bid.seller?.review_count || 0})</span>
+                                  <span>{sellerRating.toFixed(1)}</span>
+                                  <span>({sellerReviews})</span>
                                 </div>
-                                {bid.seller?.location && (
+                                {seller?.location && (
                                   <div className="flex items-center space-x-1">
                                     <MapPin className="h-3 w-3" />
-                                    <span>{bid.seller?.location}</span>
+                                    <span>{seller.location}</span>
                                   </div>
                                 )}
                               </div>

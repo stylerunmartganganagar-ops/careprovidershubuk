@@ -658,16 +658,26 @@ export default function SellerDashboard() {
                     <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <BidDialog
-                  projectId={project.id}
-                  projectTitle={project.title}
-                  onBidSubmitted={refetchProjects}
-                  trigger={
-                    <Button className="w-full bg-blue-600 hover:bg-blue-700" size="sm">
-                      Place Bid
-                    </Button>
-                  }
-                />
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    size="sm"
+                    onClick={() => navigate(`/project/${project.id}`)}
+                  >
+                    View Full Project Details
+                  </Button>
+                  <BidDialog
+                    projectId={project.id}
+                    projectTitle={project.title}
+                    onBidSubmitted={refetchProjects}
+                    trigger={
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700" size="sm">
+                        Place Bid
+                      </Button>
+                    }
+                  />
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -928,16 +938,26 @@ export default function SellerDashboard() {
                             <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
                           </div>
                         </div>
-                        <BidDialog
-                          projectId={project.id}
-                          projectTitle={project.title}
-                          onBidSubmitted={refetchProjects}
-                          trigger={
-                            <Button className="w-full bg-yellow-600 hover:bg-yellow-700" size="sm">
-                              Bid on Featured
-                            </Button>
-                          }
-                        />
+                        <div className="space-y-2">
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            size="sm"
+                            onClick={() => navigate(`/project/${project.id}`)}
+                          >
+                            View Full Project Details
+                          </Button>
+                          <BidDialog
+                            projectId={project.id}
+                            projectTitle={project.title}
+                            onBidSubmitted={refetchProjects}
+                            trigger={
+                              <Button className="w-full bg-yellow-600 hover:bg-yellow-700" size="sm">
+                                Bid on Featured
+                              </Button>
+                            }
+                          />
+                        </div>
                       </CardContent>
                     </Card>
                   ))}

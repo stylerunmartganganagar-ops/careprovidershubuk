@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import React, { useState, useEffect, createContext, useContext, ReactNode, useCallback } from 'react';
 import { supabase } from './supabase';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
@@ -33,6 +33,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   isAuthenticated: boolean;
   loading: boolean;
+  updateUserAvatar: (avatarUrl: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -168,8 +169,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { data: profile, error } = (await Promise.race([queryPromise, timeoutPromise])) as { data: DBProfile | null; error: any };
 
       if (!error && profile) {
+        let ensuredProfile = profile as DBProfile;
+
+        if (!ensuredProfile.username) {
+          try {
+            const generatedUsername = generateUsername();
+            const { data: updatedProfile, error: usernameError } = await (supabase.from('users') as any)
+              .update({ username: generatedUsername })
+              .eq('id', supabaseUser.id)
+              .select()
+              .single();
+
+            if (!usernameError && updatedProfile) {
+              ensuredProfile = updatedProfile as DBProfile;
+            } else if (usernameError) {
+              console.error('Failed to backfill username on login:', usernameError);
+            }
+          } catch (usernameCatchError) {
+            console.error('Unexpected error while generating username on login:', usernameCatchError);
+          }
+        }
+
         // Check if user is banned
-        if ((profile as any).banned) {
+        if ((ensuredProfile as any).banned) {
           console.log('User is banned, signing out');
           await supabase.auth.signOut();
           setUser(null);
@@ -179,14 +201,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Profile exists, update user data
         const updatedUserData: User = {
           id: supabaseUser.id,
-          name: (profile as DBProfile).name || initialUserData.name,
-          username: (profile as DBProfile).username || initialUserData.username,
+          name: ensuredProfile.name || initialUserData.name,
+          username: ensuredProfile.username || initialUserData.username,
           email: supabaseUser.email || '',
-          avatar: (profile as DBProfile).avatar || initialUserData.avatar,
-          role: (profile as DBProfile).role || initialUserData.role,
+          avatar: ensuredProfile.avatar || initialUserData.avatar,
+          role: ensuredProfile.role || initialUserData.role,
           phone_verified: '',
           description: '',
-          seller_level: ((profile as DBProfile).seller_level as User['seller_level']) || 'level0'
+          seller_level: (ensuredProfile.seller_level as User['seller_level']) || 'level0'
         };
         setUser(updatedUserData);
         console.log('Updated user with existing profile data:', updatedUserData);
@@ -348,6 +370,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const updateUserAvatar = useCallback((avatarUrl: string) => {
+    setUser(prev => (prev ? { ...prev, avatar: avatarUrl } : prev));
+  }, []);
+
   const value = {
     user,
     login,
@@ -355,6 +381,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     logout,
     isAuthenticated: !!user,
     loading,
+    updateUserAvatar,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

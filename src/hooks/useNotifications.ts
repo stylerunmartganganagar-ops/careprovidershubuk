@@ -9,7 +9,7 @@ export interface Notification {
   time: string;
   timestamp: string;
   unread?: boolean;
-  type: 'order' | 'message' | 'system' | 'review' | 'bid';
+  type: 'order' | 'message' | 'warning' | 'review' | 'bid';
   related_id?: string;
 }
 
@@ -39,11 +39,11 @@ export function useNotifications() {
       const transformed: Notification[] = (dbNotifications || []).map(n => ({
         id: n.id,
         title: n.title,
-        description: n.description ?? n.message ?? '',
+        description: n.message ?? '',
         time: formatTimeAgo(new Date(n.created_at)),
         timestamp: n.created_at,
         unread: !n.is_read,
-        type: (n.type as Notification['type']) || 'system',
+        type: (n.type as Notification['type']) || 'warning',
         related_id: n.related_id
       }));
 

@@ -32,7 +32,33 @@ export default function BidDetailPage() {
           .eq('id', bidId)
           .single();
         if (error) throw error;
-        if (mounted) setBid(data);
+        let bidData = data;
+        if (bidData && (!bidData.seller || (!bidData.seller.name && !bidData.seller.username))) {
+          try {
+            const { data: userRow } = await supabase
+              .from('users')
+              .select('id, name, username, avatar, rating, review_count, location')
+              .eq('id', bidData.seller_id)
+              .single();
+            if (userRow) {
+              bidData = {
+                ...bidData,
+                seller: {
+                  id: userRow.id,
+                  name: userRow.name,
+                  username: userRow.username,
+                  avatar: userRow.avatar,
+                  rating: typeof userRow.rating === 'number' ? userRow.rating : Number(userRow.rating) || 0,
+                  review_count: userRow.review_count || 0,
+                  location: userRow.location || null,
+                },
+              };
+            }
+          } catch (fetchErr) {
+            console.error('Failed to backfill seller info for bid:', fetchErr);
+          }
+        }
+        if (mounted) setBid(bidData);
       } catch (e: any) {
         if (mounted) setError(e?.message || 'Failed to load bid');
       } finally {
@@ -63,6 +89,12 @@ export default function BidDetailPage() {
     );
   }
 
+  const seller = bid.seller;
+  const sellerName = seller?.name?.trim() || seller?.username || 'Unknown Seller';
+  const sellerAvatar = seller?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(sellerName)}`;
+  const sellerRating = typeof seller?.rating === 'number' ? seller.rating : 0;
+  const sellerReviews = seller?.review_count ?? 0;
+
   return (
     <DashboardLayout>
       <div className="container mx-auto px-4 py-8">
@@ -86,21 +118,21 @@ export default function BidDetailPage() {
               <CardContent>
                 <div className="flex items-start gap-4">
                   <Avatar className="h-12 w-12">
-                    <img src={bid.seller?.avatar} alt={bid.seller?.name} />
+                    <img src={sellerAvatar} alt={sellerName} />
                   </Avatar>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="font-semibold">{bid.seller?.username || 'Unknown Seller'}</div>
+                      <div className="font-semibold">{sellerName}</div>
                       <div className="flex items-center text-xs text-gray-600 gap-1">
                         <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                        <span>{(bid.seller?.rating || 0).toFixed(1)}</span>
-                        <span>({bid.seller?.review_count || 0})</span>
+                        <span>{sellerRating.toFixed(1)}</span>
+                        <span>({sellerReviews})</span>
                       </div>
                     </div>
-                    {bid.seller?.location && (
+                    {seller?.location && (
                       <div className="flex items-center text-sm text-gray-600 gap-1">
                         <MapPin className="h-3 w-3" />
-                        <span>{bid.seller.location}</span>
+                        <span>{seller.location}</span>
                       </div>
                     )}
                   </div>

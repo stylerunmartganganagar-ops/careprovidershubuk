@@ -37,11 +37,11 @@ export default function NotificationsPage() {
                 <TabsTrigger value="all">All ({notifications.length})</TabsTrigger>
                 <TabsTrigger value="order">Orders ({notifications.filter(n => n.type === 'order').length})</TabsTrigger>
                 <TabsTrigger value="message">Messages ({notifications.filter(n => n.type === 'message').length})</TabsTrigger>
-                <TabsTrigger value="system">System ({notifications.filter(n => n.type === 'system').length})</TabsTrigger>
+                <TabsTrigger value="warning">Warnings ({notifications.filter(n => n.type === 'warning').length})</TabsTrigger>
                 <TabsTrigger value="review">Reviews ({notifications.filter(n => n.type === 'review').length})</TabsTrigger>
               </TabsList>
 
-              {['all','order','message','system','review'].map((tab) => (
+              {['all','order','message','warning','review'].map((tab) => (
                 <TabsContent key={tab} value={tab}>
                   <div className="space-y-2">
                     {notifications

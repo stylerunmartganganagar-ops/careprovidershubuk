@@ -4,7 +4,7 @@ export interface NotificationData {
   user_id: string;
   title: string;
   description: string;
-  type: 'order' | 'message' | 'system' | 'review' | 'bid';
+  type: 'order' | 'message' | 'warning' | 'review' | 'bid';
   related_id?: string;
 }
 
@@ -18,10 +18,10 @@ export async function createNotification(notification: NotificationData) {
       .insert({
         user_id: notification.user_id,
         title: notification.title,
-        description: notification.description,
+        message: notification.description,
         type: notification.type,
         related_id: notification.related_id,
-        read: false,
+        is_read: false,
         created_at: new Date().toISOString()
       })
       .select()
@@ -86,5 +86,17 @@ export async function notifyMessageReceived(recipientId: string, senderName: str
     title: `New message from ${senderName}`,
     description: messagePreview.length > 50 ? `${messagePreview.substring(0, 50)}...` : messagePreview,
     type: 'message'
+  });
+}
+
+/**
+ * Create notification when a seller receives an admin warning
+ */
+export async function notifyAdminWarning(sellerId: string, warningCount: number) {
+  return createNotification({
+    user_id: sellerId,
+    title: 'Admin Warning',
+    description: `You have received a warning from the platform administration. This is warning #${warningCount}. Please review our terms of service.`,
+    type: 'warning'
   });
 }

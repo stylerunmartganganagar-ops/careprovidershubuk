@@ -42,7 +42,7 @@ interface MessageInsert {
 
 interface ChatPartner {
   id: string;
-  name: string;
+  username: string;
   avatar: string;
   role: string;
   lastMessage?: string;
@@ -97,6 +97,22 @@ export default function MessagesPage() {
     due_date: string;
   }>>([{ title: '', description: '', amount: '', due_date: '' }]);
 
+  const formatAmount = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined) return '0';
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (!Number.isFinite(num)) return '0';
+    return Math.round(num).toLocaleString('en-GB');
+  };
+
+  const slugifyName = (value?: string | null) => {
+    if (!value) return undefined;
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      || undefined;
+  };
+
   const { user } = useAuth();
   const { search } = useLocation();
   const searchParams = new URLSearchParams(search);
@@ -146,7 +162,7 @@ export default function MessagesPage() {
   // Backfill any conversations with missing partner details (e.g., due to RLS on join)
   useEffect(() => {
     const missingIds = conversations
-      .filter(c => !c.partner.name || c.partner.name === 'Unknown User')
+      .filter(c => !c.partner.username || c.partner.username === 'unknown_user')
       .map(c => c.partner.id)
       .filter(id => !backfilledIdsRef.current.has(id)); // Only fetch IDs we haven't backfilled yet
 
@@ -170,7 +186,7 @@ export default function MessagesPage() {
             ...c,
             partner: {
               ...c.partner,
-              name: (u as any).name || (u as any).username || c.partner.name,
+              username: (u as any).username || slugifyName(u?.name) || c.partner.username,
               avatar: (u as any).avatar || c.partner.avatar,
               role: (u as any).role || c.partner.role
             }
@@ -181,7 +197,7 @@ export default function MessagesPage() {
           if (u) {
             setPartnerInfo(p => p ? {
               ...p,
-              name: (u as any).name || (u as any).username || p.name,
+              username: (u as any).username || slugifyName(u?.name) || p.username,
               avatar: (u as any).avatar || p.avatar,
               role: (u as any).role || p.role
             } : p);
@@ -369,7 +385,7 @@ export default function MessagesPage() {
           conversationMap.set(partnerId, {
             partner: {
               id: partner.id,
-              name: partner.name || partner.username || 'Unknown User',
+              username: partner.username || slugifyName(partner.name) || 'unknown_user',
               avatar: partner.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
               role: partner.role || 'user',
               lastMessage: msg.content,
@@ -470,7 +486,7 @@ export default function MessagesPage() {
       setMessages(messagesToShow);
       setPartnerInfo({
         id: partnerId,
-        name: 'Unknown User',
+        username: 'unknown_user',
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
         role: 'user'
       });
@@ -485,7 +501,7 @@ export default function MessagesPage() {
         if (partner) {
           setPartnerInfo({
             id: partner.id,
-            name: partner.name || partner.username || 'User',
+            username: partner.username || 'unknown_user',
             avatar: partner.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
             role: (partner as any).role || 'user'
           });
@@ -589,7 +605,7 @@ export default function MessagesPage() {
           {
             partner: {
               id: partnerId,
-              name: 'Unknown User',
+              username: 'unknown_user',
               avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=default',
               role: 'user',
               lastMessage: newMessage.content,
@@ -780,7 +796,7 @@ export default function MessagesPage() {
       const messageData: MessageInsert = {
         sender_id: user.id,
         receiver_id: activeChat,
-        content: `Order proposal: ${meta.title} - £${meta.price} (${meta.delivery_days} days)`,
+        content: `Order proposal: ${meta.title} - £${Math.round(meta.price)} (${meta.delivery_days} days)`,
         message_type: 'order_start',
         metadata: meta,
       };
@@ -1015,7 +1031,7 @@ export default function MessagesPage() {
       const messageData: MessageInsert = {
         sender_id: user.id,
         receiver_id: activeChat,
-        content: `Milestone order proposal: ${meta.title} - ${validMilestones.length} milestone(s) totaling £${totalMilestoneAmount.toFixed(2)}`,
+        content: `Milestone order proposal: ${meta.title} - ${validMilestones.length} milestone(s) totaling £${Math.round(totalMilestoneAmount)}`,
         message_type: 'milestone_order_start',
         milestone_order_id: milestoneOrder.id,
         order_tag: 'milestone',
@@ -1051,10 +1067,10 @@ export default function MessagesPage() {
     connectionStatus === 'connecting' ? 'Connecting...' :
     'Disconnected - Manual refresh required';
 
-  const getDisplayName = () =>
-    partnerInfo?.name ||
-    conversations.find(conv => conv.partner.id === activeChat)?.partner.name ||
-    'Chat';
+  const getDisplayUsername = () =>
+    partnerInfo?.username ||
+    conversations.find(conv => conv.partner.id === activeChat)?.partner.username ||
+    'chat-user';
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -1117,7 +1133,7 @@ export default function MessagesPage() {
                   >
                     <div className="relative">
                       <Avatar className="h-10 w-10">
-                        <img src={conversation.partner.avatar} alt={conversation.partner.name} />
+                        <img src={conversation.partner.avatar} alt={conversation.partner.username} />
                       </Avatar>
                       {conversation.hasNewMessage && (
                         <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"></div>
@@ -1126,7 +1142,7 @@ export default function MessagesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start">
                         <p className={`text-sm font-medium truncate ${conversation.hasNewMessage ? 'text-blue-600' : ''}`}>
-                          {conversation.partner.name}
+                          @{conversation.partner.username}
                         </p>
                         <span className="text-xs text-muted-foreground">
                           {conversation.partner.lastMessageTime ?
@@ -1154,10 +1170,10 @@ export default function MessagesPage() {
                       <ArrowLeft className="h-4 w-4" />
                     </button>
                     <Avatar className="h-8 w-8">
-                      <img src={partnerInfo?.avatar} alt={getDisplayName()} />
+                      <img src={partnerInfo?.avatar} alt={getDisplayUsername()} />
                     </Avatar>
                     <div>
-                      <span className="font-medium">{getDisplayName()}</span>
+                      <span className="font-medium">@{getDisplayUsername()}</span>
                       <div className="text-xs text-gray-500 capitalize">{partnerInfo?.role}</div>
                     </div>
                   </div>
@@ -1235,7 +1251,7 @@ export default function MessagesPage() {
                                 </div>
                                 <div className="text-sm">
                                   <div className="font-medium">{message.metadata?.title}</div>
-                                  <div>Total Amount: £{message.metadata?.total_amount}</div>
+                                  <div>Total Amount: £{formatAmount(message.metadata?.total_amount)}</div>
                                   {message.metadata?.requirements && (
                                     <div className="mt-1 text-xs opacity-90 whitespace-pre-wrap">Req: {message.metadata?.requirements}</div>
                                   )}
@@ -1253,7 +1269,7 @@ export default function MessagesPage() {
                                           <div className="flex-1">
                                             <div className="font-medium text-sm">{milestone.title}</div>
                                             <div className="text-xs text-gray-600 mt-1">
-                                              £{milestone.amount} • Due: {new Date(milestone.due_date).toLocaleDateString()}
+                                              £{formatAmount(milestone.amount)} • Due: {new Date(milestone.due_date).toLocaleDateString()}
                                             </div>
                                             {milestone.description && (
                                               <div className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">
@@ -1304,7 +1320,7 @@ export default function MessagesPage() {
                                 </div>
                                 <div className="text-sm">
                                   <div className="font-medium">{message.metadata?.title}</div>
-                                  <div>Price: £{message.metadata?.price}</div>
+                                  <div>Price: £{formatAmount(message.metadata?.price)}</div>
                                   <div>Delivery: {message.metadata?.delivery_days} day(s)</div>
                                   {message.metadata?.requirements && (
                                     <div className="mt-1 text-xs opacity-90 whitespace-pre-wrap">Req: {message.metadata?.requirements}</div>
@@ -1337,7 +1353,7 @@ export default function MessagesPage() {
                               <div className="space-y-1">
                                 <Badge variant="default">Milestones Created</Badge>
                                 <div className="text-sm">
-                                  {message.metadata?.milestone_count} milestone(s) created totaling £{message.metadata?.total_amount?.toFixed(2)}
+                                  {message.metadata?.milestone_count} milestone(s) created totaling £{formatAmount(message.metadata?.total_amount)}
                                 </div>
                               </div>
                             )}
@@ -1376,7 +1392,7 @@ export default function MessagesPage() {
                         <div key={milestone.id} className="flex items-center justify-between p-2 bg-white rounded border">
                           <div className="flex-1">
                             <div className="font-medium text-sm">{milestone.title}</div>
-                            <div className="text-xs text-gray-600">£{milestone.amount} • Due: {new Date(milestone.due_date).toLocaleDateString()}</div>
+                            <div className="text-xs text-gray-600">£{formatAmount(milestone.amount)} • Due: {new Date(milestone.due_date).toLocaleDateString()}</div>
                             <Badge variant={milestone.status === 'completed' ? 'default' : 'secondary'} className="text-xs mt-1">
                               {milestone.status}
                             </Badge>
@@ -1607,7 +1623,7 @@ export default function MessagesPage() {
                                 {/* Total validation */}
                                 {milestonesOrder.filter(m => m.amount).length > 0 && (
                                   <div className="text-sm text-gray-600">
-                                    Total milestone amounts: £{milestonesOrder.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0).toFixed(2)} / £{milestoneOrderTotalAmount}
+                                    Total milestone amounts: £{formatAmount(milestonesOrder.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0))} / £{formatAmount(milestoneOrderTotalAmount)}
                                   </div>
                                 )}
                               </div>
@@ -1665,7 +1681,7 @@ export default function MessagesPage() {
                     <Input
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
-                      placeholder={`Message ${getDisplayName()}...`}
+                      placeholder={`Message @${getDisplayUsername()}...`}
                       onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
                       className="flex-1 rounded-full border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                     />

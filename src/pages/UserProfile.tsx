@@ -66,7 +66,7 @@ type UsersRow = Database['public']['Tables']['users']['Row'];
 type UsersUpdate = Database['public']['Tables']['users']['Update'];
 
 export default function UserProfile() {
-  const { user } = useAuth();
+  const { user, updateUserAvatar } = useAuth();
   const navigate = useNavigate();
   const { isPro } = useIsPro(user?.id);
 
@@ -416,10 +416,6 @@ export default function UserProfile() {
     );
   }
 
-  function setUserAvatar(url: string) {
-    throw new Error('Function not implemented.');
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader />
@@ -467,7 +463,7 @@ export default function UserProfile() {
                 <div className="text-center">
                   <div className="relative inline-block mb-4">
                     <Avatar className="h-24 w-24">
-                      <img src={user?.avatar || profileData.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.id}`} alt={profileData.name} />
+                      <img src={profileData.avatarUrl || user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.id}`} alt={profileData.name} />
                     </Avatar>
                     <input
                       type="file"
@@ -492,8 +488,8 @@ export default function UserProfile() {
 
                           if (error) throw error;
 
-                          await setUserAvatar(url);
                           setProfileData(prev => ({ ...prev, avatarUrl: url }));
+                          updateUserAvatar(url);
                           toast.success('Profile logo updated');
                         } catch (uploadError) {
                           console.error('Avatar upload failed:', uploadError);

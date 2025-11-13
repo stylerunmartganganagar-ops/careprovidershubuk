@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DashboardHeader } from '../components/DashboardHeader';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Avatar } from '../components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
@@ -56,6 +57,7 @@ import {
   Plus
 } from 'lucide-react';
 import { Database, supabase } from '../lib/supabase';
+import { notifyAdminWarning } from '../lib/notifications';
 
 type UserRecord = {
   id: string;
@@ -114,15 +116,6 @@ type SellerRecord = {
   is_verified: boolean | null;
 };
 
-type PaymentRecord = {
-  id: string;
-  order_id: string;
-  amount: number;
-  currency: string | null;
-  status: string | null;
-  created_at: string;
-};
-
 type TokenPlanRecord = {
   id: string;
   name: string;
@@ -135,16 +128,46 @@ type TokenPlanRecord = {
 };
 
 type TokenPurchaseRecord = {
+  id: string;
+  seller_id: string;
+  plan_id: string;
   tokens: number;
   amount: number;
+  currency: string | null;
   status: string | null;
+  created_at: string;
+};
+
+type BuyerProSubscriptionRecord = {
+  id: string;
+  buyer_id: string;
+  plan_id: string;
+  status: string | null;
+  created_at: string;
+};
+
+type AdminBuyerProSubRow = {
+  id: string;
+  buyer_id: string;
+  buyer_name: string | null;
+  buyer_email: string | null;
+  plan_name: string | null;
+  price: number | null;
+  plan_interval: string | null;
+  status: string | null;
+  created_at: string;
 };
 
 type PlatformSettingsRow = {
+  site_name: string;
   id: string;
   fb_pixel_id: string | null;
   gtm_id: string | null;
   ga_measurement_id: string | null;
+  maintenance_mode: boolean | null;
+  support_email: string | null;
+  allow_registrations: boolean | null;
+  max_users_per_day: number | null;
 };
 
 type SellerListItem = {
@@ -202,17 +225,29 @@ type ApprovalItem = {
   isPremium?: boolean;
 };
 
-type PaymentListItem = {
-  id: string | number;
-  orderId: string;
-  seller: string;
-  buyer: string;
+type TokenPurchaseListItem = {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  sellerEmail: string;
+  planName: string;
+  tokens: number;
   amount: number;
-  fee: number;
-  netAmount: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
-  date: string;
-  dueDate: string;
+  currency: string;
+  status: string;
+  createdAt: string;
+};
+
+type BuyerProSubscriptionListItem = {
+  id: string;
+  buyerId: string;
+  buyerName: string;
+  buyerEmail: string;
+  planName: string;
+  price: number | null;
+  interval: string | null;
+  status: string;
+  createdAt: string;
 };
 
 type SellerPlanListItem = {
@@ -234,6 +269,10 @@ export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Seller details modal state
+  const [sellerDetailsModalOpen, setSellerDetailsModalOpen] = useState(false);
+  const [selectedSellerDetails, setSelectedSellerDetails] = useState<any>(null);
+
   // Mock data for admin panel
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -243,7 +282,8 @@ export default function AdminPanel() {
     reportedMessages: 0,
     tokensSold: 0,
     tokenRevenue: 0,
-    pendingPayments: 0
+    sellerPendingPurchases: 0,
+    buyerProActive: 0
   });
 
   // Conversations for moderation
@@ -341,12 +381,18 @@ export default function AdminPanel() {
     try {
       setReportsLoading(true);
 
-      const [{ data: ordersData, error: ordersError }, { data: milestoneOrdersData, error: milestoneOrdersError }, { data: paymentsData, error: paymentsError }, { data: usersData, error: usersError }] = await Promise.all([
+      const [{ data: ordersData, error: ordersError }, { data: milestoneOrdersData, error: milestoneOrdersError }, { data: tokenPurchasesData, error: tokenPurchasesError }, { data: buyerProData, error: buyerProError }, { data: usersData, error: usersError }] = await Promise.all([
         supabase.from('orders').select('status'),
         supabase.from('milestone_orders').select('status'),
         supabase
-          .from('payments')
+          .from('token_purchases')
           .select('amount, created_at')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('buyer_subscriptions')
+          .select('created_at, plan:plans(price_cents)')
+          .eq('status', 'active')
           .order('created_at', { ascending: false })
           .limit(500),
         supabase
@@ -358,7 +404,8 @@ export default function AdminPanel() {
 
       if (ordersError) throw ordersError;
       if (milestoneOrdersError) throw milestoneOrdersError;
-      if (paymentsError) throw paymentsError;
+      if (tokenPurchasesError) throw tokenPurchasesError;
+      if (buyerProError) throw buyerProError;
       if (usersError) throw usersError;
 
       const ordersByStatus = [...(ordersData || []), ...(milestoneOrdersData || [])].reduce((acc: Array<{ status: string; count: number }>, row: any) => {
@@ -370,12 +417,19 @@ export default function AdminPanel() {
       }, []);
 
       const revenueBuckets = new Map<string, number>();
-      (paymentsData || []).forEach((p: any) => {
+      (tokenPurchasesData || []).forEach((p: any) => {
         const date = new Date(p.created_at);
         if (Number.isNaN(date.getTime())) return;
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         const prev = revenueBuckets.get(key) || 0;
         revenueBuckets.set(key, prev + Number(p.amount || 0));
+      });
+      (buyerProData || []).forEach((sub: any) => {
+        const date = new Date(sub.created_at);
+        if (Number.isNaN(date.getTime())) return;
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const price = sub.plan?.price_cents ? sub.plan.price_cents / 100 : 0;
+        revenueBuckets.set(key, (revenueBuckets.get(key) || 0) + price);
       });
 
       const monthlyRevenue = Array.from(revenueBuckets.entries())
@@ -553,18 +607,166 @@ export default function AdminPanel() {
     }
   };
 
+  const handleReject = async (item: ApprovalItem) => {
+    console.log('handleReject called with item:', item);
+    try {
+      if (item.type === 'service_posting') {
+        console.log('Rejecting service:', item.id);
+        const { error } = await (supabase as any)
+          .from('services')
+          .update({ approval_status: 'rejected', is_active: false })
+          .eq('id', item.id);
+        if (error) throw error;
+        console.log('Service rejected successfully');
+      } else if (item.type === 'project_posting') {
+        console.log('Rejecting project:', item.id);
+        const { error } = await (supabase as any)
+          .from('projects')
+          .update({ status: 'rejected' })
+          .eq('id', item.id);
+        if (error) throw error;
+        console.log('Project rejected successfully');
+      }
+      console.log('Calling loadApprovals to refresh...');
+      loadApprovals(); // Refresh the list
+    } catch (e) {
+      console.error('Error rejecting item', e);
+    }
+  };
+
   const handleViewSeller = async (sellerId: string) => {
-    console.log('View seller:', sellerId);
-    // TODO: Open seller details modal or navigate to seller profile
+    try {
+      // Fetch seller profile
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', sellerId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      // Fetch recent bids
+      const { data: recentBids, error: bidsError } = await supabase
+        .from('bids')
+        .select(`
+          *,
+          project:projects!bids_project_id_fkey(title, budget, status)
+        `)
+        .eq('seller_id', sellerId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (bidsError) console.error('Error fetching recent bids:', bidsError);
+
+      // Fetch recent services
+      const { data: recentServices, error: servicesError } = await supabase
+        .from('services')
+        .select('*')
+        .eq('provider_id', sellerId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (servicesError) console.error('Error fetching recent services:', servicesError);
+
+      // Fetch recent portfolio
+      const { data: recentPortfolio, error: portfolioError } = await supabase
+        .from('portfolios')
+        .select('*')
+        .eq('provider_id', sellerId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (portfolioError) console.error('Error fetching recent portfolio:', portfolioError);
+
+      // Fetch recent reviews
+      const { data: recentReviews, error: reviewsError } = await supabase
+        .from('reviews')
+        .select(`
+          *,
+          reviewer:users!reviews_reviewer_id_fkey(name, email)
+        `)
+        .eq('reviewee_id', sellerId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (reviewsError) console.error('Error fetching recent reviews:', reviewsError);
+
+      // Fetch order stats
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('price, status')
+        .eq('provider_id', sellerId);
+
+      if (ordersError) console.error('Error fetching order stats:', ordersError);
+
+      const orderStats = {
+        total: orders?.length || 0,
+        completed: orders?.filter(o => o.status === 'completed').length || 0,
+        inProgress: orders?.filter(o => o.status === 'in_progress').length || 0,
+        earnings: orders?.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.price || 0), 0) || 0,
+      };
+
+      // Activity stats
+      const activityStats = {
+        bidsPlaced: recentBids?.length || 0,
+        servicesListed: recentServices?.length || 0,
+        lastActive: profile?.updated_at || profile?.created_at || 'Unknown',
+      };
+
+      const sellerDetails = {
+        profile,
+        recentBids: recentBids || [],
+        recentServices: recentServices || [],
+        recentPortfolio: recentPortfolio || [],
+        recentReviews: recentReviews || [],
+        orderStats,
+        activityStats,
+      };
+
+      setSelectedSellerDetails(sellerDetails);
+      setSellerDetailsModalOpen(true);
+    } catch (error) {
+      console.error('Error loading seller details:', error);
+    }
   };
 
   const handleWarnSeller = async (sellerId: string) => {
     console.log('Warn seller:', sellerId);
-    // TODO: Send warning notification and increment warning count
-    // For now, just show a confirmation
-    if (window.confirm('Send warning to this seller?')) {
-      // Update warning count in database
-      // This would typically update a warnings table or field
+    if (!window.confirm('Send warning to this seller? This will increment their warning count.')) {
+      return;
+    }
+
+    try {
+      // First get current warning count
+      const { data: currentUser, error: fetchError } = await supabase
+        .from('users')
+        .select('warnings')
+        .eq('id', sellerId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const currentWarnings = (currentUser as any)?.warnings || 0;
+      const newWarnings = currentWarnings + 1;
+
+      // Update warning count
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ warnings: newWarnings })
+        .eq('id', sellerId);
+
+      if (updateError) throw updateError;
+
+      // Send notification to seller
+      await notifyAdminWarning(sellerId, newWarnings);
+
+      console.log(`Seller warned successfully. Warning count increased to ${newWarnings}`);
+      // Refresh the sellers list
+      loadUsers();
+    } catch (e) {
+      console.error('Error warning seller:', e);
+      alert(`Error: ${e.message || e}`);
     }
   };
 
@@ -593,10 +795,45 @@ export default function AdminPanel() {
   };
 
   // Payment management
-  const [payments, setPayments] = useState<PaymentListItem[]>([]);
+  const [tokenPurchasesList, setTokenPurchasesList] = useState<TokenPurchaseListItem[]>([]);
+  const [buyerProSubscriptions, setBuyerProSubscriptions] = useState<BuyerProSubscriptionListItem[]>([]);
 
   // Seller plans (Token packages)
   const [sellerPlans, setSellerPlans] = useState<SellerPlanListItem[]>([]);
+
+  // Platform settings state
+  const [settingsFb, setSettingsFb] = useState('');
+  const [settingsGtm, setSettingsGtm] = useState('');
+  const [settingsGa, setSettingsGa] = useState('');
+  const [settingsSiteName, setSettingsSiteName] = useState('');
+  const [settingsMaintenanceMode, setSettingsMaintenanceMode] = useState(false);
+  const [settingsSupportEmail, setSettingsSupportEmail] = useState('');
+  const [settingsAllowRegistrations, setSettingsAllowRegistrations] = useState(true);
+  const [settingsMaxUsers, setSettingsMaxUsers] = useState('');
+  const [settingsRowId, setSettingsRowId] = useState<string | null>(null);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('id, fb_pixel_id, gtm_id, ga_measurement_id, site_name, maintenance_mode, support_email, allow_registrations, max_users_per_day')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .returns<PlatformSettingsRow[]>();
+      const row = data?.[0] ?? null;
+      if (row) {
+        setSettingsRowId(row.id);
+        setSettingsFb(row.fb_pixel_id || '');
+        setSettingsGtm(row.gtm_id || '');
+        setSettingsGa(row.ga_measurement_id || '');
+        setSettingsSiteName(row.site_name || '');
+        setSettingsMaintenanceMode(Boolean(row.maintenance_mode));
+        setSettingsSupportEmail(row.support_email || '');
+        setSettingsAllowRegistrations(Boolean(row.allow_registrations));
+        setSettingsMaxUsers(String(row.max_users_per_day || ''));
+      }
+    } catch {}
+  }, []);
 
   const loadApprovals = async () => {
     console.log('loadApprovals: Starting...');
@@ -715,62 +952,66 @@ export default function AdminPanel() {
     }
   };
 
+  const loadOverview = useCallback(async () => {
+    try {
+      const usersResult = (await (supabase as any)
+        .from('users')
+        .select('id', { count: 'exact', head: true })) as CountOnlyResponse;
+      const providersResult = (await (supabase as any)
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'provider')) as CountOnlyResponse;
+      const ordersResult = (await (supabase as any)
+        .from('orders')
+        .select('id', { count: 'exact', head: true })) as CountOnlyResponse;
+      const [
+        { data: tokenPurchases, error: tokenPurchasesError },
+        { count: activeBuyerProCount, error: buyerSubsError }
+      ] = await Promise.all([
+        supabase
+          .from('token_purchases')
+          .select('tokens, amount, status')
+          .returns<TokenPurchaseRecord[]>(),
+        supabase
+          .from('buyer_subscriptions')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'active'),
+      ]);
+
+      if (tokenPurchasesError) throw tokenPurchasesError;
+      if (buyerSubsError) throw buyerSubsError;
+
+      const completedPurchases = (tokenPurchases || []).filter((purchase) => !purchase.status || purchase.status === 'completed');
+      const tokensSold = completedPurchases.reduce((sum, purchase) => sum + Number(purchase.tokens || 0), 0);
+      const tokenRevenue = completedPurchases.reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+      const sellerPendingPurchases = (tokenPurchases || [])
+        .filter((purchase) => purchase.status === 'pending')
+        .reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+      const activeBuyerPro = activeBuyerProCount ?? 0;
+
+      const { data: unreadMsgs } = await supabase.from('messages').select('is_read');
+
+      if (isMountedRef.current) {
+        setStats((prev) => ({
+          ...prev,
+          totalUsers: usersResult.count ?? 0,
+          activeSellers: providersResult.count ?? 0,
+          totalOrders: ordersResult.count ?? 0,
+          tokensSold,
+          tokenRevenue,
+          sellerPendingPurchases,
+          buyerProActive: activeBuyerPro,
+          reportedMessages: (unreadMsgs || []).filter((m) => m.is_read === false).length,
+        }));
+      }
+    } catch (e) {
+      console.error('Error loading overview stats', e);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
     isMountedRef.current = true;
-
-    const loadOverview = async () => {
-      try {
-        const usersResult = (await (supabase as any)
-          .from('users')
-          .select('id', { count: 'exact', head: true })) as CountOnlyResponse;
-        const providersResult = (await (supabase as any)
-          .from('users')
-          .select('id', { count: 'exact', head: true })
-          .eq('role', 'provider')) as CountOnlyResponse;
-        const ordersResult = (await (supabase as any)
-          .from('orders')
-          .select('id', { count: 'exact', head: true })) as CountOnlyResponse;
-
-        const usersCount = usersResult.count ?? 0;
-        const providersCount = providersResult.count ?? 0;
-        const ordersCount = ordersResult.count ?? 0;
-
-        const { data: tokenPurchases, error: tokenPurchasesError } = await supabase
-          .from('token_purchases')
-          .select('tokens, amount, status')
-          .returns<TokenPurchaseRecord[]>();
-
-        if (tokenPurchasesError) throw tokenPurchasesError;
-
-        const completedPurchases = (tokenPurchases || []).filter(purchase => !purchase.status || purchase.status === 'completed');
-        const tokensSold = completedPurchases.reduce((sum, purchase: any) => sum + Number(purchase.tokens || 0), 0);
-        const tokenRevenue = completedPurchases.reduce((sum, purchase: any) => sum + Number(purchase.amount || 0), 0);
-        const pendingPayments = (tokenPurchases || [])
-          .filter(purchase => purchase.status === 'pending')
-          .reduce((sum, purchase: any) => sum + Number(purchase.amount || 0), 0);
-
-        // Use unread messages as a proxy for reported count (no flagged field present)
-        const { data: unreadMsgs } = await supabase
-          .from('messages')
-          .select('is_read');
-
-        if (isMountedRef.current) {
-          setStats(prev => ({
-            ...prev,
-            totalUsers: usersCount || 0,
-            activeSellers: providersCount || 0,
-            totalOrders: ordersCount || 0,
-            tokensSold,
-            tokenRevenue,
-            pendingPayments,
-            reportedMessages: (unreadMsgs || []).filter(m => m.is_read === false).length,
-          }));
-        }
-      } catch (e) {
-        console.error('Error loading overview stats', e);
-      }
-    };
 
     const loadMessages = async () => {
       try {
@@ -804,7 +1045,7 @@ export default function AdminPanel() {
             receiver: msg.receiver,
           };
           const existing = grouped.get(key) ?? [];
-          existing.push(enriched as any);
+          existing.push(enriched);
           grouped.set(key, existing);
         });
 
@@ -857,7 +1098,7 @@ export default function AdminPanel() {
         // First get all providers
         const { data: providers, error } = await (supabase as any)
           .from('users')
-          .select('id, name, email, is_verified, created_at, role, banned')
+          .select('id, name, email, is_verified, created_at, role, banned, warnings')
           .eq('role', 'provider')
           .order('created_at', { ascending: false })
           .limit(50);
@@ -889,7 +1130,7 @@ export default function AdminPanel() {
             const totalEarnings = orders?.reduce((sum: number, o: any) => sum + (o.price || 0), 0) || 0;
 
             // Get warning count (we'll add this later)
-            const warnings = 0; // TODO: implement warnings system
+            const warnings = provider.warnings || 0;
 
             // Get banned status from database
             const banned = provider.banned || false;
@@ -917,30 +1158,79 @@ export default function AdminPanel() {
       }
     };
 
-    const loadPayments = async () => {
+    const loadTokenPurchases = async () => {
       try {
         const { data, error } = await supabase
-          .from('payments')
-          .select('id, order_id, amount, currency, status, created_at')
+          .from('token_purchases')
+          .select(`
+            id,
+            seller_id,
+            tokens,
+            amount,
+            currency,
+            status,
+            created_at,
+            plan:token_plans(name)
+          `)
           .order('created_at', { ascending: false })
-          .limit(50)
-          .returns<PaymentRecord[]>();
+          .limit(100)
+          .returns<(TokenPurchaseRecord & { plan: { name: string | null } })[]>();
         if (error) throw error;
-        const rows: PaymentListItem[] = (data || []).map((p) => ({
-          id: p.id,
-          orderId: p.order_id,
-          seller: '-',
-          buyer: '-',
-          amount: Number(p.amount ?? 0),
-          fee: Math.round(Number(p.amount ?? 0) * 0.1),
-          netAmount: Math.round(Number(p.amount ?? 0) * 0.9),
-          status: (p.status ?? 'pending') as PaymentListItem['status'],
-          date: p.created_at,
-          dueDate: p.created_at,
-        }));
-        if (isMountedRef.current) setPayments(rows);
+
+        const sellerIds = Array.from(new Set((data || []).map((row) => row.seller_id).filter(Boolean)));
+        const sellerLookup = new Map<string, { name: string | null; email: string | null }>();
+        if (sellerIds.length > 0) {
+          const { data: sellerRows } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .in('id', sellerIds);
+          (sellerRows || []).forEach((row) => {
+            sellerLookup.set(row.id, { name: row.name ?? null, email: row.email ?? null });
+          });
+        }
+
+        const rows: TokenPurchaseListItem[] = (data || []).map((purchase) => {
+          const seller = sellerLookup.get(purchase.seller_id) ?? { name: null, email: null };
+          return {
+            id: purchase.id,
+            sellerId: purchase.seller_id,
+            sellerName: seller.name ?? 'Unknown Seller',
+            sellerEmail: seller.email ?? '—',
+            planName: purchase.plan?.name ?? 'Unknown Plan',
+            tokens: purchase.tokens,
+            amount: Number(purchase.amount ?? 0),
+            currency: purchase.currency ?? 'GBP',
+            status: purchase.status ?? 'pending',
+            createdAt: purchase.created_at,
+          };
+        });
+
+        if (isMountedRef.current) setTokenPurchasesList(rows);
       } catch (e) {
-        console.error('Error loading payments', e);
+        console.error('Error loading token purchases', e);
+      }
+    };
+
+    const loadBuyerProSubscriptions = async () => {
+      try {
+        const { data: subs, error } = await supabase.rpc('admin_list_buyer_pro_subs');
+        if (error) throw error;
+
+        const rows: BuyerProSubscriptionListItem[] = ((subs as AdminBuyerProSubRow[] | null) || []).map((sub) => ({
+          id: sub.id,
+          buyerId: sub.buyer_id,
+          buyerName: sub.buyer_name ?? 'Unknown Buyer',
+          buyerEmail: sub.buyer_email ?? '—',
+          planName: sub.plan_name ?? 'Buyer Pro',
+          price: sub.price ?? null,
+          interval: sub.plan_interval ?? null,
+          status: sub.status ?? 'pending',
+          createdAt: sub.created_at,
+        }));
+
+        if (isMountedRef.current) setBuyerProSubscriptions(rows);
+      } catch (e) {
+        console.error('Error loading buyer pro subscriptions', e);
       }
     };
 
@@ -952,17 +1242,38 @@ export default function AdminPanel() {
           .order('tokens', { ascending: true })
           .returns<TokenPlanRecord[]>();
         if (error) throw error;
-        const rows: SellerPlanListItem[] = (data || []).map((pl) => ({
-          id: pl.id,
-          name: pl.name,
-          tokens: pl.tokens,
-          price: pl.price,
-          description: pl.description,
-          activePurchases: Number(pl.active_purchases ?? 0),
-          revenue: Number(pl.total_revenue ?? 0),
-          popular: Boolean(pl.is_popular),
+
+        // Calculate actual active purchases and revenue for each plan
+        const plansWithActiveCount = await Promise.all((data || []).map(async (pl) => {
+          // Get active purchases count
+          const { count: activeCount } = await supabase
+            .from('token_purchases')
+            .select('id', { count: 'exact', head: true })
+            .eq('plan_id', pl.id)
+            .neq('status', 'cancelled');
+
+          // Get total revenue from completed purchases
+          const { data: purchases } = await supabase
+            .from('token_purchases')
+            .select('amount')
+            .eq('plan_id', pl.id)
+            .neq('status', 'cancelled');
+
+          const totalRevenue = (purchases || []).reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+
+          return {
+            id: pl.id,
+            name: pl.name,
+            tokens: pl.tokens,
+            price: pl.price,
+            description: pl.description,
+            activePurchases: activeCount ?? 0,
+            revenue: totalRevenue,
+            popular: Boolean(pl.is_popular),
+          };
         }));
-        if (isMountedRef.current) setSellerPlans(rows);
+
+        if (isMountedRef.current) setSellerPlans(plansWithActiveCount);
       } catch (e) {
         console.error('Error loading plans', e);
       }
@@ -977,7 +1288,8 @@ export default function AdminPanel() {
         loadMessages(),
         loadApprovals(),
         loadSellers(),
-        loadPayments(),
+        loadTokenPurchases(),
+        loadBuyerProSubscriptions(),
         loadPlans(),
         loadCreatedOrders(),
         loadAcceptedOrders(),
@@ -991,7 +1303,8 @@ export default function AdminPanel() {
       .channel('admin_panel_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => { loadOverview(); loadSellers(); loadApprovals(); loadUsers(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => { loadMessages(); loadOverview(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadPayments(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'buyer_subscriptions' }, () => { loadBuyerProSubscriptions(); loadOverview(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadReportsAnalytics(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_purchases' }, () => { loadOverview(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { loadOverview(); loadCreatedOrders(); loadAcceptedOrders(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => { loadApprovals(); })
@@ -1002,17 +1315,7 @@ export default function AdminPanel() {
       .subscribe();
 
     // Call all load functions
-    loadOverview();
-    loadApprovals();
-    loadMessages();
-    loadSellers();
-    loadCreatedOrders();
-    loadAcceptedOrders();
-    loadPayments();
-    loadPlans();
-    loadUsers();
-    loadReviews();
-    loadReportsAnalytics();
+    loadAll();
 
     return () => {
       mounted = false;
@@ -1020,6 +1323,12 @@ export default function AdminPanel() {
       supabase.removeChannel(channel);
     };
   }, [loadUsers, loadReviews, loadReportsAnalytics]);
+
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      loadSettings();
+    }
+  }, [activeTab, loadSettings]);
 
   const sidebarItems = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -1191,45 +1500,94 @@ export default function AdminPanel() {
     </div>
   );
 
+  const renderReports = () => {
+    const totalRevenue = reportsData.monthlyRevenue.reduce((sum, item) => sum + item.revenue, 0);
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">Reports & Analytics</h2>
+          <Button variant="outline" onClick={() => loadReportsAnalytics()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Orders by Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {reportsData.ordersByStatus.map((item) => (
+                  <div key={item.status} className="flex justify-between">
+                    <span className="capitalize">{item.status}</span>
+                    <Badge variant="secondary">{item.count}</Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Signups</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {reportsData.recentSignups.slice(0, 5).map((user) => (
+                  <div key={user.id} className="flex justify-between items-center">
+                    <div>
+                      <div className="font-medium">{user.name}</div>
+                      <div className="text-sm text-gray-500 capitalize">{user.role}</div>
+                    </div>
+                    <div className="text-sm text-gray-500">{new Date(user.createdAt).toLocaleDateString()}</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly Revenue (Total: £{totalRevenue.toLocaleString()})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {reportsData.monthlyRevenue.slice(-6).map((item) => (
+                <div key={item.month} className="flex justify-between">
+                  <span>{item.month}</span>
+                  <span className="font-medium">£{item.revenue.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const renderSettings = () => {
-    const [fb, setFb] = useState('');
-    const [gtm, setGtm] = useState('');
-    const [ga, setGa] = useState('');
-    const [rowId, setRowId] = useState<string | null>(null);
-
-    useEffect(() => {
-      (async () => {
-        try {
-          const { data } = await supabase
-            .from('platform_settings')
-            .select('id, fb_pixel_id, gtm_id, ga_measurement_id')
-            .order('updated_at', { ascending: false })
-            .limit(1)
-            .returns<PlatformSettingsRow[]>();
-          const row = data?.[0] ?? null;
-          if (row) {
-            setRowId(row.id);
-            setFb(row.fb_pixel_id || '');
-            setGtm(row.gtm_id || '');
-            setGa(row.ga_measurement_id || '');
-          }
-        } catch {}
-      })();
-    }, []);
-
     const save = async () => {
       const payload: Database['public']['Tables']['platform_settings']['Insert'] = {
-        fb_pixel_id: fb || null,
-        gtm_id: gtm || null,
-        ga_measurement_id: ga || null,
-        id: rowId || undefined,
+        fb_pixel_id: settingsFb || null,
+        gtm_id: settingsGtm || null,
+        ga_measurement_id: settingsGa || null,
+        site_name: settingsSiteName || null,
+        maintenance_mode: settingsMaintenanceMode,
+        support_email: settingsSupportEmail || null,
+        allow_registrations: settingsAllowRegistrations,
+        max_users_per_day: settingsMaxUsers ? Number(settingsMaxUsers) : null,
+        id: settingsRowId || undefined,
       };
       const { error, data } = await supabase
         .from('platform_settings')
         .upsert(payload)
         .select()
         .single<PlatformSettingsRow>();
-      if (!error && data) setRowId(data.id);
+      if (!error && data) setSettingsRowId(data.id);
     };
 
     return (
@@ -1237,24 +1595,49 @@ export default function AdminPanel() {
         <h2 className="text-2xl font-bold">Platform Settings</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
-            <CardHeader><CardTitle>Facebook Pixel</CardTitle></CardHeader>
-            <CardContent>
-              <Input placeholder="e.g. 123456789012345" value={fb} onChange={e => setFb(e.target.value)} />
-              <p className="text-xs text-gray-500 mt-2">Add your Pixel ID. Scripts are injected automatically.</p>
+            <CardHeader><CardTitle>General Settings</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="siteName">Site Name</Label>
+                <Input id="siteName" placeholder="e.g. Healthy Nexus" value={settingsSiteName} onChange={e => setSettingsSiteName(e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="supportEmail">Support Email</Label>
+                <Input id="supportEmail" placeholder="e.g. support@healthynexus.com" value={settingsSupportEmail} onChange={e => setSettingsSupportEmail(e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="maxUsers">Max Users per Day</Label>
+                <Input id="maxUsers" type="number" placeholder="100" value={settingsMaxUsers} onChange={e => setSettingsMaxUsers(e.target.value)} />
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="maintenanceMode" checked={settingsMaintenanceMode} onChange={e => setSettingsMaintenanceMode(e.target.checked)} />
+                <Label htmlFor="maintenanceMode">Maintenance Mode</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input type="checkbox" id="allowRegistrations" checked={settingsAllowRegistrations} onChange={e => setSettingsAllowRegistrations(e.target.checked)} />
+                <Label htmlFor="allowRegistrations">Allow Registrations</Label>
+              </div>
             </CardContent>
           </Card>
+
           <Card>
-            <CardHeader><CardTitle>Google Tag Manager</CardTitle></CardHeader>
-            <CardContent>
-              <Input placeholder="e.g. GTM-XXXXXXX" value={gtm} onChange={e => setGtm(e.target.value)} />
-              <p className="text-xs text-gray-500 mt-2">Add your GTM container ID. Scripts are injected automatically.</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Google Analytics (GA4)</CardTitle></CardHeader>
-            <CardContent>
-              <Input placeholder="e.g. G-XXXXXXXXXX" value={ga} onChange={e => setGa(e.target.value)} />
-              <p className="text-xs text-gray-500 mt-2">Add your GA4 Measurement ID. Scripts are injected automatically.</p>
+            <CardHeader><CardTitle>Analytics & Tracking</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="fb">Facebook Pixel</Label>
+                <Input id="fb" placeholder="e.g. 123456789012345" value={settingsFb} onChange={e => setSettingsFb(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-2">Add your Pixel ID. Scripts are injected automatically.</p>
+              </div>
+              <div>
+                <Label htmlFor="gtm">Google Tag Manager</Label>
+                <Input id="gtm" placeholder="e.g. GTM-XXXXXXX" value={settingsGtm} onChange={e => setSettingsGtm(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-2">Add your GTM container ID. Scripts are injected automatically.</p>
+              </div>
+              <div>
+                <Label htmlFor="ga">Google Analytics (GA4)</Label>
+                <Input id="ga" placeholder="e.g. G-XXXXXXXXXX" value={settingsGa} onChange={e => setSettingsGa(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-2">Add your GA4 Measurement ID. Scripts are injected automatically.</p>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1366,9 +1749,33 @@ export default function AdminPanel() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Token Revenue</p>
-                <p className="text-2xl font-bold">£{(stats.tokenRevenue ?? 0).toLocaleString()}</p>
+                <p className="text-2xl font-bold">£{Number(stats.tokenRevenue || 0).toLocaleString()}</p>
               </div>
               <DollarSign className="h-8 w-8 text-yellow-600" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Active Buyer Pro</p>
+                <p className="text-2xl font-bold">{stats.buyerProActive.toLocaleString()}</p>
+              </div>
+              <Crown className="h-8 w-8 text-yellow-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Pending Seller Purchases</p>
+                <p className="text-2xl font-bold">£{Number(stats.sellerPendingPurchases || 0).toLocaleString()}</p>
+              </div>
+              <CreditCard className="h-8 w-8 text-red-500" />
             </div>
           </CardContent>
         </Card>
@@ -1393,8 +1800,12 @@ export default function AdminPanel() {
                 <Badge variant="destructive">{stats.reportedMessages}</Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span>Pending Payments</span>
-                <Badge variant="secondary">£{stats.pendingPayments.toLocaleString()}</Badge>
+                <span>Pending Token Purchases</span>
+                <Badge variant="secondary">£{Number(stats.sellerPendingPurchases || 0).toLocaleString()}</Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Active Buyer Pro Members</span>
+                <Badge variant="secondary">{stats.buyerProActive.toLocaleString()}</Badge>
               </div>
             </div>
           </CardContent>
@@ -1525,194 +1936,193 @@ export default function AdminPanel() {
     </div>
   );
 
-  const renderMessages = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold">Conversation Monitoring</h2>
-          <p className="text-sm text-gray-500">Open any conversation to review the full chat history in detail.</p>
+  const renderMessages = () => {
+    // Function to analyze message content for problematic patterns
+    const analyzeMessageContent = (content: string) => {
+      if (!content) return 'safe'; // No content
+
+      const lowerContent = content.toLowerCase();
+
+      // Check for email patterns
+      const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+      if (emailRegex.test(content)) {
+        return 'danger'; // Red - contains email
+      }
+
+      // Check for URL patterns
+      const urlRegex = /\b(?:https?:\/\/|www\.)\S+\b/g;
+      if (urlRegex.test(content)) {
+        return 'danger'; // Red - contains URL
+      }
+
+      // Check for phone number patterns (more specific to avoid false positives)
+      // Look for patterns that are clearly phone numbers, not just any numbers
+      const phoneRegex = /(\+?\d{1,4}?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})|(\b\d{10,15}\b(?!\.\d))/g;
+      const cleanContent = content.replace(/£[\d,]+\.?\d*/g, ''); // Remove currency amounts
+      if (phoneRegex.test(cleanContent) && /\d{10,}/.test(cleanContent.replace(/\s+/g, ''))) {
+        return 'warning'; // Yellow - contains phone number
+      }
+
+      // Check for personal details sharing patterns (exclude business terms)
+      const personalDetailsKeywords = /\b(my\s+(phone|email|number|contact|whatsapp|telegram|signal)|contact\s+me|reach\s+me|call\s+me|text\s+me|dm\s+me|message\s+me)\b/gi;
+      if (personalDetailsKeywords.test(lowerContent)) {
+        // Exclude if it's clearly business-related (contains business terms)
+        const businessTerms = /\b(order|milestone|proposal|project|service|payment|invoice|contract|quote|estimate|deadline)\b/gi;
+        if (!businessTerms.test(lowerContent)) {
+          return 'warning'; // Yellow - personal details sharing (but not business)
+        }
+      }
+
+      return 'safe'; // White - no issues
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold">Conversation Monitoring</h2>
+            <p className="text-sm text-gray-500">Open any conversation to review the full chat history in detail.</p>
+          </div>
+          <div className="flex space-x-2">
+            <Button variant="outline" onClick={() => loadOverview()}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh Stats
+            </Button>
+          </div>
         </div>
-        <div className="flex space-x-2">
-          <Button variant="outline" onClick={() => loadOverview()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh Stats
-          </Button>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {conversations.length === 0 ? (
-          <Card className="col-span-full">
-            <CardContent className="p-6 text-center text-sm text-gray-500">
-              No conversations found. Messages will appear here as users start chatting.
-            </CardContent>
-          </Card>
-        ) : (
-          conversations.map((conversation) => (
-            <Card key={conversation.conversationId}>
-              <CardContent className="p-6 flex flex-col h-full">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <div className="text-sm text-gray-500">Participants</div>
-                    <div className="font-semibold text-gray-900">
-                      {conversation.participants.join('  B7 ')}
-                    </div>
-                  </div>
-                  <div className="text-xs text-gray-500">{conversation.totalMessages} messages</div>
-                </div>
-
-                <div className="flex-1">
-                  <div className="text-xs uppercase tracking-wide text-gray-400 mb-1">Last message</div>
-                  <div className="text-sm text-gray-700 line-clamp-3">
-                    {conversation.lastMessage.preview || 'No content'}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-gray-500 mt-4">
-                  <span>{conversation.lastMessage.sender}</span>
-                  <span>{new Date(conversation.lastMessage.createdAt).toLocaleString()}</span>
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <Dialog open={selectedConversationId === conversation.conversationId} onOpenChange={(open) => setSelectedConversationId(open ? conversation.conversationId : null)}>
-                    <DialogTrigger asChild>
-                      <Button size="sm" variant="outline">
-                        <Eye className="h-4 w-4 mr-1" />
-                        View Conversation
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-4xl">
-                      <DialogHeader>
-                        <DialogTitle>Conversation Details</DialogTitle>
-                      </DialogHeader>
-                      <div className="text-sm text-gray-500 mb-4">
-                        Participants: {conversation.participants.join('  B7 ')}
-                      </div>
-                      <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-2">
-                        {(conversationMessages[conversation.conversationId] ?? []).map((msg) => (
-                          <div key={msg.id} className="rounded-lg border border-gray-200 p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="font-semibold text-gray-800">{msg.sender}</span>
-                              <span className="text-xs text-gray-500">{new Date(msg.createdAt).toLocaleString()}</span>
-                            </div>
-                            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{msg.content}</p>
-                          </div>
-                        ))}
-                        {(conversationMessages[conversation.conversationId] ?? []).length === 0 && (
-                          <div className="text-sm text-gray-500">No messages available for this conversation.</div>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {conversations.length === 0 ? (
+            <Card className="col-span-full">
+              <CardContent className="p-6 text-center text-sm text-gray-500">
+                No conversations found. Messages will appear here as users start chatting.
               </CardContent>
             </Card>
-          ))
-        )}
-      </div>
-    </div>
-  );
-
-  const renderReports = () => (
-    <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">Reports &amp; Analytics</h2>
-          <p className="text-sm text-gray-500">Key activity across orders, revenue, and new signups.</p>
-        </div>
-        <Button variant="outline" onClick={() => loadReportsAnalytics()} disabled={reportsLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${reportsLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-500 mb-2">Orders by status</div>
-            <div className="space-y-3">
-              {reportsData.ordersByStatus.length === 0 ? (
-                <p className="text-sm text-gray-500">No order data yet.</p>
-              ) : (
-                reportsData.ordersByStatus.map((row) => (
-                  <div key={row.status} className="flex items-center justify-between">
-                    <span className="capitalize">{row.status}</span>
-                    <Badge variant="outline">{row.count}</Badge>
-                  </div>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-500 mb-2">Monthly revenue (£)</div>
-            {reportsData.monthlyRevenue.length === 0 ? (
-              <p className="text-sm text-gray-500">No payments recorded yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {reportsData.monthlyRevenue.slice(-6).map((row) => (
-                  <div key={row.month} className="flex items-center justify-between">
-                    <span>{row.month}</span>
-                    <span className="font-medium">£{row.revenue.toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-sm text-gray-500 mb-2">Recent signups</div>
-            {reportsData.recentSignups.length === 0 ? (
-              <p className="text-sm text-gray-500">No recent users.</p>
-            ) : (
-              <div className="space-y-3">
-                {reportsData.recentSignups.map((user) => (
-                  <div key={user.id} className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{user.name}</div>
-                      <div className="text-xs text-gray-500 capitalize">{user.role}</div>
-                    </div>
-                    <div className="text-xs text-gray-500">{new Date(user.createdAt).toLocaleDateString()}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardContent className="p-6">
-          {reportsLoading ? (
-            <div className="flex items-center justify-center h-32 text-sm text-gray-500">Loading...</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Orders overview</h3>
-                <ul className="space-y-2 text-sm text-gray-600">
-                  {reportsData.ordersByStatus.map((item) => (
-                    <li key={item.status}>{item.status}: {item.count}</li>
-                  ))}
-                  {reportsData.ordersByStatus.length === 0 && <li>No data available.</li>}
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Top insights</h3>
-                <ul className="space-y-2 text-sm text-gray-600">
-                  <li>Revenue tracked across {reportsData.monthlyRevenue.length} month(s).</li>
-                  <li>{reportsData.recentSignups.length} new users in the latest fetch.</li>
-                </ul>
-              </div>
-            </div>
+            conversations.map((conversation) => {
+              // Determine overall risk level across all messages
+              const allMessages = conversationMessages[conversation.conversationId] || [];
+              const contentRisk = allMessages.reduce<'safe' | 'warning' | 'danger'>((acc, msg) => {
+                const risk = analyzeMessageContent(msg.content);
+                if (risk === 'danger') return 'danger';
+                if (risk === 'warning' && acc === 'safe') return 'warning';
+                return acc;
+              }, 'safe');
+
+              return (
+                <Card
+                  key={conversation.conversationId}
+                  className={`transition-colors ${
+                    contentRisk === 'danger'
+                      ? 'bg-red-50 border-red-200 ring-1 ring-red-200'
+                      : contentRisk === 'warning'
+                      ? 'bg-yellow-50 border-yellow-200 ring-1 ring-yellow-200'
+                      : 'bg-white'
+                  }`}
+                >
+                  <CardContent className="p-6 flex flex-col h-full">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <div className="text-sm text-gray-500">Participants</div>
+                        <div className="font-semibold text-gray-900">
+                          {conversation.participants.join(' ◦ ')}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {contentRisk === 'danger' && (
+                          <Badge variant="destructive" className="text-xs">
+                            ⚠️ Needs Review
+                          </Badge>
+                        )}
+                        <div className="text-xs text-gray-500">{conversation.totalMessages} messages</div>
+                      </div>
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="text-xs uppercase tracking-wide text-gray-400 mb-1">Last message</div>
+                      <div className={`text-sm line-clamp-3 ${
+                        contentRisk === 'danger'
+                          ? 'text-red-800'
+                          : contentRisk === 'warning'
+                          ? 'text-yellow-800'
+                          : 'text-gray-700'
+                      }`}>
+                        {conversation.lastMessage.preview || 'No content'}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-gray-500 mt-4">
+                      <span>{conversation.lastMessage.sender}</span>
+                      <span>{new Date(conversation.lastMessage.createdAt).toLocaleString()}</span>
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                      <Dialog open={selectedConversationId === conversation.conversationId} onOpenChange={(open) => setSelectedConversationId(open ? conversation.conversationId : null)}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Conversation
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-4xl">
+                          <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                              Conversation Details
+                              {contentRisk === 'danger' && <Badge variant="destructive">⚠️ High Risk</Badge>}
+                              {contentRisk === 'warning' && <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">⚠️ Medium Risk</Badge>}
+                            </DialogTitle>
+                          </DialogHeader>
+                          <div className="text-sm text-gray-500 mb-4">
+                            Participants: {conversation.participants.join(' ◦ ')}
+                          </div>
+                          <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-2">
+                            {(conversationMessages[conversation.conversationId] ?? []).map((msg) => {
+                              const msgRisk = analyzeMessageContent(msg.content);
+                              return (
+                                <div
+                                  key={msg.id}
+                                  className={`rounded-lg border border-gray-200 p-4 ${
+                                    msgRisk === 'danger'
+                                      ? 'bg-red-50 border-red-200'
+                                      : msgRisk === 'warning'
+                                      ? 'bg-yellow-50 border-yellow-200'
+                                      : 'bg-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="font-semibold text-gray-800">{msg.sender}</span>
+                                    <div className="flex items-center space-x-2">
+                                      {msgRisk === 'danger' && <Badge variant="destructive" className="text-xs">⚠️</Badge>}
+                                      {msgRisk === 'warning' && <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">⚠️</Badge>}
+                                      <span className="text-xs text-gray-500">{new Date(msg.createdAt).toLocaleString()}</span>
+                                    </div>
+                                  </div>
+                                  <p className={`text-sm whitespace-pre-wrap break-words ${
+                                    msgRisk === 'danger' ? 'text-red-800' :
+                                    msgRisk === 'warning' ? 'text-yellow-800' :
+                                    'text-gray-700'
+                                  }`}>
+                                    {msg.content}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                            {(conversationMessages[conversation.conversationId] ?? []).length === 0 && (
+                              <div className="text-sm text-gray-500">No messages available for this conversation.</div>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
           )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+        </div>
+      </div>
+    );
+  };
 
   const renderApprovals = () => (
     <div className="space-y-6">
@@ -2022,8 +2432,10 @@ export default function AdminPanel() {
               <TableCell>{seller.ordersCompleted}</TableCell>
               <TableCell>£{seller.earnings.toLocaleString()}</TableCell>
               <TableCell>
-                {seller.warnings > 0 && (
+                {seller.warnings > 0 ? (
                   <Badge variant="destructive">{seller.warnings}</Badge>
+                ) : (
+                  <span className="text-gray-500">0</span>
                 )}
               </TableCell>
               <TableCell>
@@ -2052,100 +2464,194 @@ export default function AdminPanel() {
     </div>
   );
 
-  const renderPayments = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Payment Management</h2>
-        <div className="flex space-x-2">
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Export Report
-          </Button>
-          <Button>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Process Payments
-          </Button>
+  const renderPayments = useCallback(() => {
+    const totalTokenValue = tokenPurchasesList.reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+    const pendingTokenValue = tokenPurchasesList
+      .filter((purchase) => purchase.status === 'pending')
+      .reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+    const completedTokenValue = totalTokenValue - pendingTokenValue;
+
+    const activeBuyerPro = buyerProSubscriptions.filter((sub) => sub.status === 'active').length;
+    const buyerProRevenue = buyerProSubscriptions
+      .filter((sub) => sub.status === 'active')
+      .reduce((sum, sub) => sum + Number(sub.price || 0), 0);
+
+    const totalRevenue = totalTokenValue + buyerProRevenue;
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold">Payment Management</h2>
+          <div className="flex space-x-2">
+            <Button variant="outline">
+              <Download className="h-4 w-4 mr-2" />
+              Export Report
+            </Button>
+            <Button onClick={() => {
+              loadTokenPurchases();
+              loadBuyerProSubscriptions();
+            }}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-6 text-center">
+              <div className="text-sm text-gray-500">Total Revenue</div>
+              <div className="text-2xl font-bold text-green-600">£{totalRevenue.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 text-center">
+              <div className="text-sm text-gray-500">Token Revenue</div>
+              <div className="text-2xl font-bold text-blue-600">£{totalTokenValue.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 text-center">
+              <div className="text-sm text-gray-500">Completed Purchases</div>
+              <div className="text-2xl font-bold text-blue-600">£{completedTokenValue.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 text-center">
+              <div className="text-sm text-gray-500">Pending Token Purchases</div>
+              <div className="text-2xl font-bold text-yellow-600">£{pendingTokenValue.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6 text-center">
+              <div className="text-sm text-gray-500">Active Buyer Pro</div>
+              <div className="text-2xl font-bold text-purple-600">{activeBuyerPro.toLocaleString()}</div>
+              <div className="text-xs text-gray-500 mt-1">£{buyerProRevenue.toLocaleString()} / cycle</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <Card className="overflow-hidden">
+            <CardHeader>
+              <CardTitle>Seller Token Purchases</CardTitle>
+              <CardDescription>Recent token package purchases made by sellers.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Seller</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Tokens</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tokenPurchasesList.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-8 text-center text-sm text-gray-500">
+                        No token purchases recorded yet.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {tokenPurchasesList.map((purchase) => (
+                    <TableRow key={purchase.id}>
+                      <TableCell>
+                        <div className="font-medium">{purchase.sellerName}</div>
+                        <div className="text-xs text-gray-500">{purchase.sellerEmail}</div>
+                      </TableCell>
+                      <TableCell>{purchase.planName}</TableCell>
+                      <TableCell>{purchase.tokens}</TableCell>
+                      <TableCell>£{Number(purchase.amount || 0).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            purchase.status === 'completed'
+                              ? 'default'
+                              : purchase.status === 'pending'
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                        >
+                          {purchase.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{new Date(purchase.createdAt).toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <CardHeader>
+              <CardTitle>Buyer Pro Subscriptions</CardTitle>
+              <CardDescription>Recent Buyer Pro plan activations and renewals.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Buyer</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Interval</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {buyerProSubscriptions.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-8 text-center text-sm text-gray-500">
+                        No Buyer Pro subscriptions found.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {buyerProSubscriptions.map((sub) => (
+                    <TableRow key={sub.id}>
+                      <TableCell>
+                        <div className="font-medium">{sub.buyerName}</div>
+                        <div className="text-xs text-gray-500">{sub.buyerEmail}</div>
+                      </TableCell>
+                      <TableCell>{sub.planName}</TableCell>
+                      <TableCell>
+                        {sub.price != null ? `£${Number(sub.price).toLocaleString()}` : '—'}
+                      </TableCell>
+                      <TableCell>{sub.interval ?? '—'}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            sub.status === 'active'
+                              ? 'default'
+                              : sub.status === 'pending'
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                        >
+                          {sub.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{new Date(sub.createdAt).toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">£{stats.pendingPayments.toLocaleString()}</div>
-              <div className="text-sm text-gray-600">Pending Payments</div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">£{(stats.pendingPayments * 0.1).toLocaleString()}</div>
-              <div className="text-sm text-gray-600">Platform Fees</div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">£{(stats.pendingPayments * 0.9).toLocaleString()}</div>
-              <div className="text-sm text-gray-600">Seller Payouts</div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Order ID</TableHead>
-            <TableHead>Seller</TableHead>
-            <TableHead>Buyer</TableHead>
-            <TableHead>Amount</TableHead>
-            <TableHead>Fee</TableHead>
-            <TableHead>Net Amount</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Due Date</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {payments.map((payment) => (
-            <TableRow key={payment.id}>
-              <TableCell className="font-mono">{payment.orderId}</TableCell>
-              <TableCell>{payment.seller}</TableCell>
-              <TableCell>{payment.buyer}</TableCell>
-              <TableCell>£{payment.amount.toLocaleString()}</TableCell>
-              <TableCell>£{payment.fee.toLocaleString()}</TableCell>
-              <TableCell className="font-semibold">£{payment.netAmount.toLocaleString()}</TableCell>
-              <TableCell>
-                <Badge variant={
-                  payment.status === 'completed' ? 'default' :
-                  payment.status === 'processing' ? 'secondary' : 'outline'
-                }>
-                  {payment.status}
-                </Badge>
-              </TableCell>
-              <TableCell>{payment.dueDate}</TableCell>
-              <TableCell>
-                <div className="flex space-x-1">
-                  {payment.status === 'pending' && (
-                    <Button size="sm">
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Release
-                    </Button>
-                  )}
-                  <Button size="sm" variant="outline">
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
+    );
+  }, [
+    tokenPurchasesList,
+    buyerProSubscriptions,
+    loadTokenPurchases,
+    loadBuyerProSubscriptions,
+  ]);
 
   const renderPlans = () => (
     <div className="space-y-6">
@@ -2413,17 +2919,316 @@ export default function AdminPanel() {
             {activeTab === 'orders_accepted' && renderAcceptedOrders()}
             {activeTab === 'plans' && renderPlans()}
             {activeTab === 'reviews' && renderReviews()}
+            {activeTab === 'reports' && renderReports()}
+            {activeTab === 'settings' && renderSettings()}
           </div>
         </div>
       </div>
+
+      {/* Seller Details Modal */}
+      <Dialog open={sellerDetailsModalOpen} onOpenChange={setSellerDetailsModalOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Seller Details</DialogTitle>
+            <DialogDescription>
+              Comprehensive view of seller activity and performance metrics.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedSellerDetails && (
+            <div className="flex flex-col h-full max-h-[75vh] overflow-hidden">
+              <Tabs defaultValue="profile" className="flex-1 flex flex-col overflow-hidden">
+                <TabsList className="grid w-full grid-cols-6">
+                  <TabsTrigger value="profile">Profile</TabsTrigger>
+                  <TabsTrigger value="bids">Bids ({selectedSellerDetails.recentBids.length})</TabsTrigger>
+                  <TabsTrigger value="services">Services ({selectedSellerDetails.recentServices.length})</TabsTrigger>
+                  <TabsTrigger value="portfolio">Portfolio ({selectedSellerDetails.recentPortfolio.length})</TabsTrigger>
+                  <TabsTrigger value="reviews">Reviews ({selectedSellerDetails.recentReviews.length})</TabsTrigger>
+                  <TabsTrigger value="activity">Activity</TabsTrigger>
+                </TabsList>
+
+                <div className="flex-1 overflow-y-auto mt-4">
+                  <TabsContent value="profile" className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Basic Information</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="flex items-center space-x-3">
+                            <Avatar className="h-16 w-16">
+                              <img
+                                src={selectedSellerDetails.profile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedSellerDetails.profile.id}`}
+                                alt={selectedSellerDetails.profile.name}
+                              />
+                            </Avatar>
+                            <div>
+                              <h3 className="text-lg font-semibold">{selectedSellerDetails.profile.name || 'Unnamed'}</h3>
+                              <p className="text-gray-600">{selectedSellerDetails.profile.email}</p>
+                              <p className="text-sm text-gray-500">@{selectedSellerDetails.profile.username}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <Label className="text-gray-500">Role</Label>
+                              <p className="capitalize">{selectedSellerDetails.profile.role}</p>
+                            </div>
+                            <div>
+                              <Label className="text-gray-500">Verified</Label>
+                              <p>{selectedSellerDetails.profile.is_verified ? 'Yes' : 'No'}</p>
+                            </div>
+                            <div>
+                              <Label className="text-gray-500">Joined</Label>
+                              <p>{new Date(selectedSellerDetails.profile.created_at).toLocaleDateString()}</p>
+                            </div>
+                            <div>
+                              <Label className="text-gray-500">Warnings</Label>
+                              <p>{selectedSellerDetails.profile.warnings || 0}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Order Statistics</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-blue-600">{selectedSellerDetails.orderStats.total}</div>
+                              <div className="text-sm text-gray-600">Total Orders</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-green-600">{selectedSellerDetails.orderStats.completed}</div>
+                              <div className="text-sm text-gray-600">Completed</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-yellow-600">{selectedSellerDetails.orderStats.inProgress}</div>
+                              <div className="text-sm text-gray-600">In Progress</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-600">£{selectedSellerDetails.orderStats.earnings.toLocaleString()}</div>
+                              <div className="text-sm text-gray-600">Earnings</div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Additional Details</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <Label className="text-gray-500">Bio</Label>
+                            <p>{selectedSellerDetails.profile.bio || 'Not provided'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-gray-500">Location</Label>
+                            <p>{selectedSellerDetails.profile.location || 'Not provided'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-gray-500">Company</Label>
+                            <p>{selectedSellerDetails.profile.company || 'Not provided'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-gray-500">Job Title</Label>
+                            <p>{selectedSellerDetails.profile.job_title || 'Not provided'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-gray-500">Website</Label>
+                            <p>{selectedSellerDetails.profile.website || 'Not provided'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-gray-500">Phone</Label>
+                            <p>{selectedSellerDetails.profile.phone || 'Not provided'}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
+                  <TabsContent value="bids" className="space-y-4">
+                    <div className="space-y-4">
+                      {selectedSellerDetails.recentBids.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-6 text-center text-gray-500">
+                            No bids found for this seller.
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        selectedSellerDetails.recentBids.map((bid: any) => (
+                          <Card key={bid.id}>
+                            <CardContent className="p-4">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h4 className="font-medium">{bid.project?.title || 'Unknown Project'}</h4>
+                                  <p className="text-sm text-gray-600">Bid Amount: £{bid.bid_amount}</p>
+                                  <p className="text-sm text-gray-600">Status: <Badge variant={bid.status === 'accepted' ? 'default' : bid.status === 'rejected' ? 'destructive' : 'secondary'}>{bid.status}</Badge></p>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(bid.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+                              {bid.message && (
+                                <p className="text-sm text-gray-700 mt-2">{bid.message}</p>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="services" className="space-y-4">
+                    <div className="space-y-4">
+                      {selectedSellerDetails.recentServices.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-6 text-center text-gray-500">
+                            No active services found for this seller.
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        selectedSellerDetails.recentServices.map((service: any) => (
+                          <Card key={service.id}>
+                            <CardContent className="p-4">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h4 className="font-medium">{service.title}</h4>
+                                  <p className="text-sm text-gray-600">Price: £{service.price}</p>
+                                  <p className="text-sm text-gray-600">Category: {service.category}</p>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(service.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="portfolio" className="space-y-4">
+                    <div className="space-y-4">
+                      {selectedSellerDetails.recentPortfolio.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-6 text-center text-gray-500">
+                            No portfolio items found for this seller.
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        selectedSellerDetails.recentPortfolio.map((item: any) => (
+                          <Card key={item.id}>
+                            <CardContent className="p-4">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h4 className="font-medium">{item.title}</h4>
+                                  <p className="text-sm text-gray-600 line-clamp-2">{item.description}</p>
+                                  <p className="text-sm text-gray-600">Category: {item.category}</p>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {new Date(item.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="reviews" className="space-y-4">
+                    <div className="space-y-4">
+                      {selectedSellerDetails.recentReviews.length === 0 ? (
+                        <Card>
+                          <CardContent className="p-6 text-center text-gray-500">
+                            No reviews found for this seller.
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        selectedSellerDetails.recentReviews.map((review: any) => (
+                          <Card key={review.id}>
+                            <CardContent className="p-4">
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <span className="font-medium">{review.reviewer?.name || 'Anonymous'}</span>
+                                    <div className="flex">
+                                      {[1, 2, 3, 4, 5].map((star) => (
+                                        <Star
+                                          key={star}
+                                          className={`h-3 w-3 ${star <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <p className="text-sm text-gray-700">{review.comment}</p>
+                                </div>
+                                <div className="text-xs text-gray-500 ml-4">
+                                  {new Date(review.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="activity" className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Card>
+                        <CardContent className="p-6 text-center">
+                          <div className="text-2xl font-bold text-blue-600">{selectedSellerDetails.activityStats.bidsPlaced}</div>
+                          <div className="text-sm text-gray-600">Bids Placed</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-6 text-center">
+                          <div className="text-2xl font-bold text-green-600">{selectedSellerDetails.activityStats.servicesListed}</div>
+                          <div className="text-sm text-gray-600">Services Listed</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-6 text-center">
+                          <div className="text-2xl font-bold text-purple-600">{selectedSellerDetails.profile.warnings || 0}</div>
+                          <div className="text-sm text-gray-600">Warnings</div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Recent Activity</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Last Active</span>
+                            <span className="text-sm">{new Date(selectedSellerDetails.activityStats.lastActive).toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Account Status</span>
+                            <Badge variant={selectedSellerDetails.profile.banned ? 'destructive' : 'default'}>
+                              {selectedSellerDetails.profile.banned ? 'Banned' : 'Active'}
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
-}
-function handleReject(approval: ApprovalItem): void {
-  throw new Error('Function not implemented.');
-}
-
-function loadOverview(): void {
-  throw new Error('Function not implemented.');
 }
 

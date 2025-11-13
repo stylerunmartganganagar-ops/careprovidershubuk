@@ -228,13 +228,23 @@ const ProjectCard = ({ project, wrapperClassName = 'flex-none w-[260px] sm:w-[30
               <span>Due {new Date(project.deadline).toLocaleDateString()}</span>
             </div>
           </div>
-          <Button
-            className="w-full"
-            size="sm"
-            onClick={() => navigate(`/project/${project.id}/bid`, { state: { from: `${location.pathname}${location.search}` } })}
-          >
-            Place Bid
-          </Button>
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              className="w-full"
+              size="sm"
+              onClick={() => navigate(`/project/${project.id}`)}
+            >
+              View Full Project Details
+            </Button>
+            <Button
+              className="w-full"
+              size="sm"
+              onClick={() => navigate(`/project/${project.id}/bid`, { state: { from: `${location.pathname}${location.search}` } })}
+            >
+              Place Bid
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

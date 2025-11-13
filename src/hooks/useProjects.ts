@@ -32,6 +32,7 @@ export interface Bid {
   seller?: {
     id: string;
     name: string;
+    username?: string;
     avatar?: string;
     rating: number;
     review_count: number;
@@ -220,6 +221,7 @@ export function useProjectBids(projectId: string | undefined) {
             seller:users!bids_seller_id_fkey (
               id,
               name,
+              username,
               avatar,
               rating,
               review_count,
@@ -234,8 +236,48 @@ export function useProjectBids(projectId: string | undefined) {
 
         if (error) throw error;
         const baseBids = (data || []) as Bid[];
+        let enrichedBids = baseBids;
+
+        const missingSellerIds = enrichedBids
+          .filter(b => !b.seller)
+          .map(b => b.seller_id);
+
+        if (missingSellerIds.length > 0) {
+          try {
+            const { data: missingUsers } = await (supabase as any)
+              .from('users')
+              .select('id, name, username, avatar, rating, review_count, company, job_title, location, is_verified')
+              .in('id', missingSellerIds);
+
+            if (missingUsers && Array.isArray(missingUsers)) {
+              enrichedBids = enrichedBids.map(bid => {
+                if (bid.seller) return bid;
+                const userMatch = (missingUsers as any[]).find(u => u.id === bid.seller_id);
+                if (!userMatch) return bid;
+                return {
+                  ...bid,
+                  seller: {
+                    id: userMatch.id,
+                    name: userMatch.name || '',
+                    username: userMatch.username || undefined,
+                    avatar: userMatch.avatar || undefined,
+                    rating: typeof userMatch.rating === 'number' ? userMatch.rating : Number(userMatch.rating) || 0,
+                    review_count: userMatch.review_count || 0,
+                    company: userMatch.company || undefined,
+                    job_title: userMatch.job_title || undefined,
+                    location: userMatch.location || undefined,
+                    is_verified: !!userMatch.is_verified,
+                  }
+                } as Bid;
+              });
+            }
+          } catch (missingErr) {
+            console.error('Failed to backfill seller profiles for bids:', missingErr);
+          }
+        }
+
         // Enrich ratings from reviews to ensure accuracy
-        const sellerIds = Array.from(new Set(baseBids.map(b => b.seller_id).filter(Boolean)));
+        const sellerIds = Array.from(new Set(enrichedBids.map(b => b.seller_id).filter(Boolean)));
         if (sellerIds.length) {
           try {
             const { data: revs } = await (supabase as any)
@@ -248,7 +290,7 @@ export function useProjectBids(projectId: string | undefined) {
               if (!map[id]) map[id] = { sum: 0, count: 0 };
               map[id].sum += rating; map[id].count += 1;
             });
-            const merged = baseBids.map(b => {
+            const merged = enrichedBids.map(b => {
               const agg = map[b.seller_id];
               if (agg) {
                 const avg = agg.count ? agg.sum / agg.count : 0;
@@ -265,10 +307,10 @@ export function useProjectBids(projectId: string | undefined) {
             });
             setBids(merged);
           } catch {
-            setBids(baseBids);
+            setBids(enrichedBids);
           }
         } else {
-          setBids(baseBids);
+          setBids(enrichedBids);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch bids');
