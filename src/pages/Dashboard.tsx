@@ -492,7 +492,7 @@ export default function DashboardPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate('/services/all', { state: { services: featuredServices, title: 'Featured Services', subtitle: 'Handpicked top-rated healthcare service providers' } })}
+                  onClick={() => navigate('/searchresults?filter=featured')}
                   className="self-start sm:self-auto"
                 >
                   View All
@@ -552,7 +552,7 @@ export default function DashboardPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate('/services/all', { state: { services: justForYouServices, title: 'Just For You', subtitle: 'Personalized recommendations based on your activity' } })}
+                  onClick={() => navigate('/searchresults?filter=personalized')}
                   className="self-start sm:self-auto"
                 >
                   View All
@@ -607,7 +607,7 @@ export default function DashboardPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate('/services/all', { state: { services: basedOnSearchesServices, title: 'Based on Your Searches', subtitle: 'More services related to your recent searches' } })}
+                  onClick={() => navigate('/searchresults?filter=searches')}
                   className="self-start sm:self-auto"
                 >
                   View All

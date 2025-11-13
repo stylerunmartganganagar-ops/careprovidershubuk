@@ -46,6 +46,8 @@ export default function TokenPurchasePage() {
     balance: true,
   });
   const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+  const [detailsPlan, setDetailsPlan] = useState<TokenPlan | null>(null);
 
   // Fetch token plans
   useEffect(() => {
@@ -142,6 +144,32 @@ export default function TokenPurchasePage() {
     try {
       const plan = tokenPlans.find((p) => p.slug === planSlug);
       if (!plan) throw new Error('Plan not found');
+
+      // Special case: Seller Plus subscription
+      if (plan.slug === 'seller-plus') {
+        // Prevent duplicate
+        const { data: existing, error: existErr } = await supabase
+          .from('seller_subscriptions')
+          .select('id, status, ends_at')
+          .eq('seller_id', user.id)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (existErr) throw existErr;
+        if (existing && (!existing.ends_at || new Date(existing.ends_at) > new Date())) {
+          toast.success('Seller Plus already active');
+          return;
+        }
+
+        const endsAt = new Date();
+        endsAt.setDate(endsAt.getDate() + 30);
+        const { error: insErr } = await supabase
+          .from('seller_subscriptions')
+          .insert({ seller_id: user.id, status: 'active', plan_slug: 'seller-plus', ends_at: endsAt.toISOString() });
+        if (insErr) throw insErr;
+        try { await (supabase as any).rpc('mark_services_featured_for_seller', { _seller: user.id }); } catch {}
+        toast.success('Seller Plus activated! Your services are now featured.');
+        return;
+      }
 
       // Simulate a short processing delay (gateway-less flow)
       await new Promise((res) => setTimeout(res, 900));
@@ -255,7 +283,8 @@ export default function TokenPurchasePage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {tokenPlans.map((plan) => {
-              const planPrice = plan.tokens * TOKEN_PRICE_GBP;
+              const isSellerPlus = plan.slug === 'seller-plus';
+              const planPrice = isSellerPlus ? plan.price : (plan.tokens * TOKEN_PRICE_GBP);
               return (
                 <Card 
                   key={plan.id} 
@@ -264,23 +293,45 @@ export default function TokenPurchasePage() {
                   }`}
                 >
                 {plan.is_popular && (
-                  <div className="absolute top-0 right-0 bg-yellow-500 text-white text-xs font-semibold px-3 py-1 transform rotate-12 translate-x-8 -translate-y-1">
+                  <div className="absolute top-3 right-3 bg-yellow-500 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-sm">
                     POPULAR
                   </div>
                 )}
                 <CardHeader>
                   <CardTitle className="text-xl">{plan.name}</CardTitle>
-                  <p className="text-gray-600 text-sm">{plan.description}</p>
+                  <p className="text-gray-600 text-sm">{isSellerPlus ? 'Feature all your gigs for 30 days' : plan.description}</p>
                 </CardHeader>
                 <CardContent>
-                  <div className="mb-4">
-                    <span className="text-3xl font-bold">{plan.tokens}</span>
-                    <span className="text-gray-500 ml-1">tokens</span>
-                  </div>
-                  <div className="flex items-baseline mb-6">
-                    <span className="text-4xl font-bold text-blue-600">£{planPrice.toFixed(2)}</span>
-                    <span className="text-gray-500 ml-1">one-time</span>
-                  </div>
+                  {isSellerPlus ? (
+                    <>
+                      <div className="mb-4">
+                        <span className="text-3xl font-bold">Seller Plus</span>
+                        <span className="text-gray-500 ml-2">subscription</span>
+                      </div>
+                      <div className="flex items-baseline mb-4">
+                        <span className="text-4xl font-bold text-blue-600">£{Number(planPrice).toFixed(2)}</span>
+                        <span className="text-gray-500 ml-1">per month</span>
+                      </div>
+                      <ul className="text-sm text-gray-700 space-y-2 mb-4">
+                        <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-600"/> All your services become Featured</li>
+                        <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-600"/> Top placement in categories and homepage</li>
+                        <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-600"/> Featured badge on your gigs</li>
+                        <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-600"/> 30-day duration, auto-expire</li>
+                      </ul>
+                      <Button variant="outline" size="sm" onClick={() => { setDetailsPlan(plan); setDetailsOpen(true); }}>View Details</Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-4">
+                        <span className="text-3xl font-bold">{plan.tokens}</span>
+                        <span className="text-gray-500 ml-1">tokens</span>
+                      </div>
+                      <div className="flex items-baseline mb-6">
+                        <span className="text-4xl font-bold text-blue-600">£{planPrice.toFixed(2)}</span>
+                        <span className="text-gray-500 ml-1">one-time</span>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
                 <CardFooter>
                   <Button
@@ -295,7 +346,7 @@ export default function TokenPurchasePage() {
                         Processing...
                       </>
                     ) : (
-                      `Buy ${plan.tokens} Tokens`
+                      isSellerPlus ? 'Buy Seller Plus' : `Buy ${plan.tokens} Tokens`
                     )}
                   </Button>
                 </CardFooter>
@@ -378,6 +429,28 @@ export default function TokenPurchasePage() {
       </section>
     </div>
     <Footer />
+    {detailsOpen && detailsPlan?.slug === 'seller-plus' && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white rounded-lg shadow-lg max-w-lg w-full overflow-hidden">
+          <div className="p-6 border-b">
+            <h3 className="text-xl font-semibold">Seller Plus Details</h3>
+            <p className="text-sm text-gray-600 mt-1">Everything included in your featured subscription</p>
+          </div>
+          <div className="p-6 space-y-3 text-gray-700">
+            <div className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> Feature all your gigs across the site</div>
+            <div className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> Top placement in category pages and homepage Featured</div>
+            <div className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> Visible Featured badge to buyers</div>
+            <div className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> 30 days active from activation time</div>
+            <div className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> Auto-expire with no lock-in contract</div>
+            <div className="pt-2 text-sm text-gray-500">Price: £{Number(detailsPlan.price).toFixed(2)} per month</div>
+          </div>
+          <div className="p-6 border-t flex gap-3 justify-end">
+            <Button variant="outline" onClick={() => setDetailsOpen(false)}>Close</Button>
+            <Button onClick={() => { setDetailsOpen(false); handlePurchase('seller-plus'); }}>Buy Seller Plus</Button>
+          </div>
+        </div>
+      </div>
+    )}
     </SellerDashboardLayout>
   );
 }

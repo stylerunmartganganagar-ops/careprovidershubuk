@@ -8,7 +8,6 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Avatar } from '../components/ui/avatar';
 import { Progress } from '../components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import {
   Star,
   MapPin,
@@ -29,9 +28,17 @@ import {
   Eye,
   Award,
   Zap,
-  Users
+  Users,
+  X
 } from 'lucide-react';
 import { useServiceDetail, useServiceReviews, useRelatedServices, useSellerPortfolio } from '../hooks/useProjects';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../components/ui/dialog';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
 
@@ -41,6 +48,8 @@ export default function ServiceDetail() {
   const [selectedImage, setSelectedImage] = useState(0);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [enrichedService, setEnrichedService] = useState<any>(null);
+  const [previewPortfolio, setPreviewPortfolio] = useState<any | null>(null);
+  const [previewImageIndex, setPreviewImageIndex] = useState(0);
 
   const { service, loading, error } = useServiceDetail(id);
   const { reviews } = useServiceReviews(id);
@@ -75,12 +84,6 @@ export default function ServiceDetail() {
           .select('reviewee_id, rating')
           .eq('reviewee_id', providerId);
 
-        // Also get the current user rating from the users table as backup
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('id, rating, review_count')
-          .eq('id', providerId);
-
         let finalRating = 0;
         let finalReviewCount = 0;
 
@@ -88,9 +91,6 @@ export default function ServiceDetail() {
           const totalRating = allReviews.reduce((sum, r) => sum + Number(r.rating), 0);
           finalRating = totalRating / allReviews.length;
           finalReviewCount = allReviews.length;
-        } else if (userData && userData[0]) {
-          finalRating = Number(userData[0].rating) || 0;
-          finalReviewCount = Number(userData[0].review_count) || 0;
         }
 
         const enriched = {
@@ -285,67 +285,62 @@ export default function ServiceDetail() {
             </Card>
           )}
 
-          {/* Mobile Seller Info */}
+          {/* About This Service comes immediately after images */}
           <Card>
-            <CardContent className="p-6">
-              <h3 className="font-semibold mb-4">About the Seller</h3>
-              <div className="flex items-center space-x-3 mb-4">
-                <Avatar className="h-12 w-12">
-                  <img src={currentService.provider?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={currentService.provider?.name} />
-                </Avatar>
-                <div>
-                  <div className="font-medium">{currentService.provider?.name}</div>
-                  <div className="text-sm text-gray-600">@{currentService.provider?.username}</div>
-                  <div className="flex items-center text-xs text-gray-600 mt-1">
-                    <Star className="h-3 w-3 mr-1 fill-yellow-400 text-yellow-400" />
-                    <span>{(currentService.provider?.rating || 0).toFixed(1)} ({currentService.provider?.review_count || 0} reviews)</span>
+            <CardHeader>
+              <CardTitle className="text-2xl">About This Service</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-6">
+              <div className="text-gray-700 leading-relaxed text-lg">
+                {showFullDescription ? currentService.description : `${currentService.description?.slice(0, 500)}...`}
+                {currentService.description && currentService.description.length > 500 && (
+                  <Button
+                    variant="link"
+                    className="p-0 h-auto font-semibold"
+                    onClick={() => setShowFullDescription(!showFullDescription)}
+                  >
+                    {showFullDescription ? 'Show Less' : 'Read More'}
+                  </Button>
+                )}
+              </div>
+
+              {currentService.requirements && currentService.requirements.length > 0 && (
+                <div className="space-y-4">
+                  <h4 className="text-xl font-semibold">What I Need From You</h4>
+                  <div className="space-y-3">
+                    {currentService.requirements.map((req: string, index: number) => (
+                      <div key={index} className="flex items-start">
+                        <CheckCircle className="h-6 w-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
+                        <span className="text-gray-700 text-lg">{req}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <h4 className="text-xl font-semibold">Why Choose This Service?</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex items-center">
+                    <Zap className="h-6 w-6 text-yellow-500 mr-3" />
+                    <span className="text-gray-700">Fast turnaround time</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Shield className="h-6 w-6 text-blue-500 mr-3" />
+                    <span className="text-gray-700">Quality guaranteed</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Award className="h-6 w-6 text-purple-500 mr-3" />
+                    <span className="text-gray-700">Expert knowledge</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Users className="h-6 w-6 text-green-500 mr-3" />
+                    <span className="text-gray-700">Personalized approach</span>
                   </div>
                 </div>
               </div>
-              <Button className="w-full" onClick={() => handleContact(currentService.provider_id)}>
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Contact Seller
-              </Button>
             </CardContent>
           </Card>
-
-          {portfolioItems && portfolioItems.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Portfolio Highlights</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {portfolioItems.slice(0, 2).map((item) => (
-                  <div key={item.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-sm truncate">{item.title}</h4>
-                      <Badge variant="outline" className="text-[10px]">
-                        {new Date(item.created_at).toLocaleDateString()}
-                      </Badge>
-                    </div>
-                    {item.images && item.images.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        {item.images.slice(0, 4).map((image, index) => (
-                          <div key={index} className="aspect-square rounded-md overflow-hidden border border-gray-200">
-                            <img src={image} alt={`${item.title} visual ${index + 1}`} className="w-full h-full object-cover object-center" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center h-24 rounded-md bg-gray-100 text-gray-500 text-sm">
-                        No visuals uploaded
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {portfolioItems.length > 2 && (
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => setSelectedImage(0)}>
-                    View more in portfolio tab
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           {/* Mobile Order Card */}
           <Card>
@@ -368,165 +363,168 @@ export default function ServiceDetail() {
             </CardContent>
           </Card>
 
-          {/* Mobile Tabs */}
-          <Card>
-            <Tabs defaultValue="description" className="w-full">
+          {portfolioItems && portfolioItems.length > 0 && (
+            <Card>
               <CardHeader>
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="description">Description</TabsTrigger>
-                  <TabsTrigger value="reviews">Reviews ({totalReviews})</TabsTrigger>
-                  <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-                  <TabsTrigger value="faq">FAQ</TabsTrigger>
-                </TabsList>
+                <CardTitle className="text-2xl">Portfolio Highlights</CardTitle>
               </CardHeader>
-
-              <TabsContent value="description" className="px-6 pb-6">
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-2xl font-semibold mb-4">About This Service</h3>
-                    <div className="text-gray-700 leading-relaxed text-lg">
-                      {showFullDescription ? currentService.description : `${currentService.description?.slice(0, 500)}...`}
-                      {currentService.description && currentService.description.length > 500 && (
-                        <Button
-                          variant="link"
-                          className="p-0 h-auto font-semibold"
-                          onClick={() => setShowFullDescription(!showFullDescription)}
-                        >
-                          {showFullDescription ? 'Show Less' : 'Read More'}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {currentService.requirements && currentService.requirements.length > 0 && (
-                    <div>
-                      <h4 className="text-xl font-semibold mb-4">What I Need From You</h4>
-                      <div className="space-y-3">
-                        {currentService.requirements.map((req: string, index: number) => (
-                          <div key={index} className="flex items-start">
-                            <CheckCircle className="h-6 w-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
-                            <span className="text-gray-700 text-lg">{req}</span>
+              <CardContent className="p-6">
+                <div className="relative">
+                  <div className="space-y-4 max-h-96 overflow-y-auto pr-2 snap-y snap-mandatory">
+                    {portfolioItems.slice(0, 8).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="w-full text-left rounded-xl border border-gray-200 overflow-hidden snap-start transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        onClick={() => {
+                          setPreviewPortfolio(item);
+                          setPreviewImageIndex(0);
+                        }}
+                      >
+                        <div className="p-4 border-b border-gray-100">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-semibold text-base truncate">{item.title}</h4>
+                            <Badge variant="outline" className="text-[11px]">
+                              {new Date(item.created_at).toLocaleDateString()}
+                            </Badge>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="reviews" className="px-6 pb-6">
-                <div className="space-y-6">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <div className="text-3xl font-bold">{averageRating.toFixed(1)}</div>
-                        <div className="flex items-center mt-1">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Star
-                              key={star}
-                              className={`h-4 w-4 ${
-                                star <= Math.round(averageRating)
-                                  ? 'fill-yellow-400 text-yellow-400'
-                                  : 'text-gray-300'
-                              }`}
-                            />
-                          ))}
                         </div>
-                        <div className="text-sm text-gray-600 mt-1">{totalReviews} reviews</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {reviews.map((review) => (
-                      <Card key={review.id}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start space-x-3">
-                            <Avatar className="h-10 w-10">
-                              <img src={review.user_avatar} alt={review.user_name} />
-                            </Avatar>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-2">
-                                <div>
-                                  <div className="font-semibold">{review.user_name}</div>
-                                  <div className="flex items-center space-x-2">
-                                    <div className="flex">
-                                      {[1, 2, 3, 4, 5].map((star) => (
-                                        <Star
-                                          key={star}
-                                          className={`h-3 w-3 ${
-                                            star <= review.rating
-                                              ? 'fill-yellow-400 text-yellow-400'
-                                              : 'text-gray-300'
-                                          }`}
-                                        />
-                                      ))}
-                                    </div>
-                                    <span className="text-xs text-gray-600">
-                                      {new Date(review.created_at).toLocaleDateString()}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              <p className="text-gray-700 leading-relaxed text-sm">{review.comment}</p>
+                        <div className="relative">
+                          {item.images && item.images.length > 0 ? (
+                            <div className="w-full h-48 overflow-hidden">
+                              <img
+                                src={item.images[0]}
+                                alt={`${item.title} preview`}
+                                className="w-full h-full object-cover"
+                              />
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                          ) : (
+                            <div className="h-48 flex items-center justify-center bg-gray-100 text-gray-500 text-sm">
+                              No visuals uploaded
+                            </div>
+                          )}
+                        </div>
+                      </button>
                     ))}
                   </div>
                 </div>
-              </TabsContent>
+              </CardContent>
+            </Card>
+          )}
 
-              <TabsContent value="portfolio" className="px-6 pb-6">
-                <div className="space-y-6">
-                  <h3 className="text-2xl font-semibold">Portfolio & Past Work</h3>
-                  {portfolioItems && portfolioItems.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {portfolioItems.slice(0, 6).map((item) => (
-                        <Card key={item.id} className="overflow-hidden">
-                          <CardHeader className="pb-2">
-                            <CardTitle className="text-base truncate">{item.title}</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            {item.images && item.images.length > 0 ? (
-                              <div className="grid grid-cols-2 gap-2">
-                                {item.images.slice(0, 4).map((image, index) => (
-                                  <div key={index} className="aspect-square rounded-md overflow-hidden border border-gray-200">
-                                    <img src={image} alt={`${item.title} visual ${index + 1}`} className="w-full h-full object-cover object-center" />
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center h-28 rounded-md bg-gray-100 text-gray-500 text-sm">
-                                No visuals uploaded
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">Client Reviews</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-6">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-3xl font-bold">{averageRating.toFixed(1)}</div>
+                    <div className="flex items-center mt-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          className={`h-4 w-4 ${
+                            star <= Math.round(averageRating)
+                              ? 'fill-yellow-400 text-yellow-400'
+                              : 'text-gray-300'
+                          }`}
+                        />
                       ))}
                     </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Package className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                      <p className="text-gray-600">No portfolio items yet.</p>
-                    </div>
-                  )}
+                    <div className="text-sm text-gray-600 mt-1">{totalReviews} reviews</div>
+                  </div>
                 </div>
-              </TabsContent>
+              </div>
 
-              <TabsContent value="faq" className="px-6 pb-6">
-                <div className="space-y-4">
-                  <h3 className="text-xl font-semibold mb-4">Frequently Asked Questions</h3>
-                  <Card>
+              <div className="space-y-4">
+                {reviews.map((review) => (
+                  <Card key={review.id}>
                     <CardContent className="p-4">
-                      <h4 className="font-semibold mb-2">How long does it take?</h4>
-                      <p className="text-gray-700 text-sm">Typically {currentService.delivery_time}.</p>
+                      <div className="flex items-start space-x-3">
+                        <Avatar className="h-10 w-10">
+                          <img src={review.user_avatar} alt={review.user_name} />
+                        </Avatar>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <div className="font-semibold">{review.user_name}</div>
+                              <div className="flex items-center space-x-2">
+                                <div className="flex">
+                                  {[1, 2, 3, 4, 5].map((star) => (
+                                    <Star
+                                      key={star}
+                                      className={`h-3 w-3 ${
+                                        star <= review.rating
+                                          ? 'fill-yellow-400 text-yellow-400'
+                                          : 'text-gray-300'
+                                      }`}
+                                    />
+                                  ))}
+                                </div>
+                                <span className="text-xs text-gray-600">
+                                  {new Date(review.created_at).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-gray-700 leading-relaxed text-sm">{review.comment}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-2xl">Frequently Asked Questions</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              <Card>
+                <CardContent className="p-4">
+                  <h4 className="font-semibold mb-2">How long does it take?</h4>
+                  <p className="text-gray-700 text-sm">Typically {currentService.delivery_time}.</p>
+                </CardContent>
+              </Card>
+            </CardContent>
+          </Card>
+
+          {/* Mobile Seller Info moved near end with buttons */}
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center space-x-3">
+                <Avatar className="h-12 w-12">
+                  <img src={currentService.provider?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=default'} alt={currentService.provider?.name} />
+                </Avatar>
+                <div>
+                  <div className="font-semibold text-lg">{currentService.provider?.name}</div>
+                  <div className="text-sm text-gray-600">@{currentService.provider?.username}</div>
+                  <div className="flex items-center text-xs text-gray-600 mt-1">
+                    <Star className="h-3 w-3 mr-1 fill-yellow-400 text-yellow-400" />
+                    <span>{(currentService.provider?.rating || 0).toFixed(1)} ({currentService.provider?.review_count || 0} reviews)</span>
+                  </div>
                 </div>
-              </TabsContent>
-            </Tabs>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  onClick={() => navigate(`/seller/${currentService.provider_id}`)}
+                  variant="outline"
+                  className="w-full"
+                >
+                  <User className="h-4 w-4 mr-2" />
+                  View Profile
+                </Button>
+                <Button className="w-full" onClick={() => handleContact(currentService.provider_id)}>
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Contact
+                </Button>
+              </div>
+            </CardContent>
           </Card>
         </div>
 
@@ -590,254 +588,223 @@ export default function ServiceDetail() {
                 </Card>
               )}
 
-              {portfolioItems && portfolioItems.length > 0 && (
-                <Card className="mt-8">
-                  <CardHeader>
-                    <CardTitle className="text-2xl">Portfolio Highlights</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {portfolioItems.slice(0, 4).map((item) => (
-                      <Card key={item.id} className="border border-gray-200">
-                        <CardContent className="p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-semibold text-base truncate">{item.title}</h4>
-                            <Badge variant="secondary" className="text-[11px]">{item.category || 'Portfolio'}</Badge>
-                          </div>
-                          {item.images && item.images.length > 0 ? (
-                            <div className="grid grid-cols-2 gap-2">
-                              {item.images.slice(0, 4).map((image, index) => (
-                                <div key={index} className="aspect-square rounded-md overflow-hidden border border-gray-200">
-                                  <img src={image} alt={`${item.title} visual ${index + 1}`} className="w-full h-full object-cover" />
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center h-28 rounded-md bg-gray-100 text-gray-500 text-sm">
-                              No visuals uploaded
-                            </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
+              <Card className="border border-gray-200 rounded-2xl shadow-sm">
+                <CardHeader className="px-6 xl:px-8">
+                  <CardTitle className="text-2xl">About This Service</CardTitle>
+                </CardHeader>
+                <CardContent className="px-6 pb-6 xl:px-8 xl:pb-8 space-y-8">
+                  <div className="text-gray-700 leading-relaxed text-lg">
+                    {showFullDescription ? currentService.description : `${currentService.description?.slice(0, 700)}...`}
+                    {currentService.description && currentService.description.length > 700 && (
+                      <Button
+                        variant="link"
+                        className="p-0 h-auto font-semibold"
+                        onClick={() => setShowFullDescription(!showFullDescription)}
+                      >
+                        {showFullDescription ? 'Show Less' : 'Read More'}
+                      </Button>
+                    )}
+                  </div>
 
-              {/* Below Image - Tabs */}
-              <Card className="rounded-2xl border border-gray-200 shadow-sm">
-                <Tabs defaultValue="description" className="w-full">
-                  <CardHeader>
-                    <TabsList className="grid w-full grid-cols-4">
-                      <TabsTrigger value="description">Description</TabsTrigger>
-                      <TabsTrigger value="reviews">Reviews ({totalReviews})</TabsTrigger>
-                      <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-                      <TabsTrigger value="faq">FAQ</TabsTrigger>
-                    </TabsList>
-                  </CardHeader>
-
-                  <TabsContent value="description" className="px-6 pb-6 xl:px-8 xl:pb-8">
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-xl font-semibold mb-4">About This Service</h3>
-                        <div className="text-gray-700 leading-relaxed text-lg">
-                          {showFullDescription ? currentService.description : `${currentService.description?.slice(0, 500)}...`}
-                          {currentService.description && currentService.description.length > 500 && (
-                            <Button
-                              variant="link"
-                              className="p-0 h-auto font-semibold"
-                              onClick={() => setShowFullDescription(!showFullDescription)}
-                            >
-                              {showFullDescription ? 'Show Less' : 'Read More'}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {currentService.requirements && currentService.requirements.length > 0 && (
-                        <div>
-                          <h4 className="text-xl font-semibold mb-4">What I Need From You</h4>
-                          <div className="space-y-3">
-                            {currentService.requirements.map((req: string, index: number) => (
-                              <div key={index} className="flex items-start">
-                                <CheckCircle className="h-6 w-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
-                                <span className="text-gray-700 text-lg">{req}</span>
-                              </div>
-                            ))}
+                  {currentService.requirements && currentService.requirements.length > 0 && (
+                    <div className="space-y-4">
+                      <h3 className="text-xl font-semibold">What I Need From You</h3>
+                      <div className="space-y-3">
+                        {currentService.requirements.map((req: string, index: number) => (
+                          <div key={index} className="flex items-start">
+                            <CheckCircle className="h-6 w-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
+                            <span className="text-gray-700 text-lg">{req}</span>
                           </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <h4 className="text-xl font-semibold mb-4">Why Choose This Service?</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="flex items-center">
-                            <Zap className="h-6 w-6 text-yellow-500 mr-3" />
-                            <span className="text-gray-700">Fast turnaround time</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Shield className="h-6 w-6 text-blue-500 mr-3" />
-                            <span className="text-gray-700">Quality guaranteed</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Award className="h-6 w-6 text-purple-500 mr-3" />
-                            <span className="text-gray-700">Expert knowledge</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Users className="h-6 w-6 text-green-500 mr-3" />
-                            <span className="text-gray-700">Personalized approach</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="reviews" className="px-6 pb-6 xl:px-8 xl:pb-8">
-                    <div className="space-y-6">
-                      <div className="bg-gray-50 p-6 rounded-lg">
-                        <div className="flex items-center justify-between mb-4">
-                          <div>
-                            <div className="text-4xl font-bold">{averageRating.toFixed(1)}</div>
-                            <div className="flex items-center mt-1">
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <Star
-                                  key={star}
-                                  className={`h-5 w-5 ${
-                                    star <= Math.round(averageRating)
-                                      ? 'fill-yellow-400 text-yellow-400'
-                                      : 'text-gray-300'
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                            <div className="text-sm text-gray-600 mt-1">{totalReviews} reviews</div>
-                          </div>
-                          <div className="space-y-2">
-                            {[5, 4, 3, 2, 1].map((rating) => {
-                              const count = reviews.filter(r => r.rating === rating).length;
-                              const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : 0;
-                              return (
-                                <div key={rating} className="flex items-center space-x-2 text-sm">
-                                  <span className="w-3">{rating}</span>
-                                  <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                                  <Progress value={percentage} className="w-24 h-2" />
-                                  <span className="w-8 text-gray-600">{count}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-6">
-                        {reviews.map((review) => (
-                          <Card key={review.id}>
-                            <CardContent className="p-6">
-                              <div className="flex items-start space-x-4">
-                                <Avatar className="h-12 w-12">
-                                  <img src={review.user_avatar} alt={review.user_name} />
-                                </Avatar>
-                                <div className="flex-1">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div>
-                                      <div className="font-semibold">{review.user_name}</div>
-                                      <div className="flex items-center space-x-2">
-                                        <div className="flex">
-                                          {[1, 2, 3, 4, 5].map((star) => (
-                                            <Star
-                                              key={star}
-                                              className={`h-4 w-4 ${
-                                                star <= review.rating
-                                                  ? 'fill-yellow-400 text-yellow-400'
-                                                  : 'text-gray-300'
-                                              }`}
-                                            />
-                                          ))}
-                                        </div>
-                                        <span className="text-sm text-gray-600">
-                                          {new Date(review.created_at).toLocaleDateString()}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <Button variant="ghost" size="sm">
-                                      <ThumbsUp className="h-4 w-4 mr-1" />
-                                      Helpful ({review.helpful_count})
-                                    </Button>
-                                  </div>
-                                  <p className="text-gray-700 leading-relaxed">{review.comment}</p>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
                         ))}
                       </div>
                     </div>
-                  </TabsContent>
+                  )}
 
-                  <TabsContent value="portfolio" className="px-6 pb-6 xl:px-8 xl:pb-8">
-                    <div className="space-y-6">
-                      <h3 className="text-xl font-semibold">Portfolio & Past Work</h3>
-                      {portfolioItems && portfolioItems.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                          {portfolioItems.slice(0, 9).map((item) => (
-                            <Card key={item.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-                              <CardHeader className="pb-2">
-                                <CardTitle className="text-lg truncate">{item.title}</CardTitle>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {item.images && item.images.length > 0 ? (
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {item.images.slice(0, 4).map((image, index) => (
-                                      <div key={index} className="aspect-square rounded-md overflow-hidden border border-gray-200">
-                                        <img src={image} alt={`${item.title} visual ${index + 1}`} className="w-full h-full object-cover" />
-                                      </div>
-                                    ))}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-semibold">Why Choose This Service?</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center">
+                        <Zap className="h-6 w-6 text-yellow-500 mr-3" />
+                        <span className="text-gray-700">Fast turnaround time</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Shield className="h-6 w-6 text-blue-500 mr-3" />
+                        <span className="text-gray-700">Quality guaranteed</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Award className="h-6 w-6 text-purple-500 mr-3" />
+                        <span className="text-gray-700">Expert knowledge</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Users className="h-6 w-6 text-green-500 mr-3" />
+                        <span className="text-gray-700">Personalized approach</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border border-gray-200 rounded-2xl shadow-sm">
+                <CardHeader className="px-6 xl:px-8">
+                  <CardTitle className="text-2xl">Portfolio Highlights</CardTitle>
+                </CardHeader>
+                <CardContent className="px-6 pb-6 xl:px-8 xl:pb-8">
+                  {portfolioItems && portfolioItems.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {portfolioItems.slice(0, 6).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="text-left border border-gray-200 rounded-xl overflow-hidden transition-shadow hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          onClick={() => {
+                            setPreviewPortfolio(item);
+                            setPreviewImageIndex(0);
+                          }}
+                        >
+                          <div className="p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-semibold text-base truncate">{item.title}</h4>
+                              <Badge variant="secondary" className="text-[11px]">{item.category || 'Portfolio'}</Badge>
+                            </div>
+                            {item.images && item.images.length > 0 ? (
+                              <div className="grid grid-cols-2 gap-2">
+                                {item.images.slice(0, 4).map((image, index) => (
+                                  <div key={index} className="aspect-square rounded-md overflow-hidden border border-gray-200">
+                                    <img src={image} alt={`${item.title} visual ${index + 1}`} className="w-full h-full object-cover" />
                                   </div>
-                                ) : (
-                                  <div className="flex items-center justify-center h-28 rounded-md bg-gray-100 text-gray-500 text-sm">
-                                    No visuals uploaded
-                                  </div>
-                                )}
-                                {item.description && (
-                                  <p className="text-sm text-gray-600 line-clamp-2">{item.description}</p>
-                                )}
-                              </CardContent>
-                            </Card>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center h-28 rounded-md bg-gray-100 text-gray-500 text-sm">
+                                No visuals uploaded
+                              </div>
+                            )}
+                            {item.description && (
+                              <p className="text-sm text-gray-600 line-clamp-2">{item.description}</p>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <Package className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                      <h4 className="text-lg font-medium mb-2">No Portfolio Items Yet</h4>
+                      <p className="text-gray-600">This seller hasn't added any portfolio items.</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="border border-gray-200 rounded-2xl shadow-sm">
+                <CardHeader className="px-6 xl:px-8">
+                  <CardTitle className="text-2xl">Client Reviews</CardTitle>
+                </CardHeader>
+                <CardContent className="px-6 pb-6 xl:px-8 xl:pb-8 space-y-8">
+                  <div className="bg-gray-50 p-6 rounded-lg">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                      <div>
+                        <div className="text-4xl font-bold">{averageRating.toFixed(1)}</div>
+                        <div className="flex items-center mt-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className={`h-5 w-5 ${
+                                star <= Math.round(averageRating)
+                                  ? 'fill-yellow-400 text-yellow-400'
+                                  : 'text-gray-300'
+                              }`}
+                            />
                           ))}
                         </div>
-                      ) : (
-                        <div className="text-center py-12">
-                          <Package className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                          <h4 className="text-lg font-medium mb-2">No Portfolio Items Yet</h4>
-                          <p className="text-gray-600">This seller hasn't added any portfolio items.</p>
-                        </div>
-                      )}
+                        <div className="text-sm text-gray-600 mt-1">{totalReviews} reviews</div>
+                      </div>
+                      <div className="space-y-2">
+                        {[5, 4, 3, 2, 1].map((rating) => {
+                          const count = reviews.filter((r) => r.rating === rating).length;
+                          const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : 0;
+                          return (
+                            <div key={rating} className="flex items-center space-x-3 text-sm">
+                              <span className="w-4 text-right">{rating}</span>
+                              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                              <Progress value={percentage} className="w-28 h-2" />
+                              <span className="w-8 text-gray-600 text-right">{count}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </TabsContent>
+                  </div>
 
-                  <TabsContent value="faq" className="px-6 pb-6 xl:px-8 xl:pb-8">
-                    <div className="space-y-4">
-                      <h3 className="text-xl font-semibold mb-6">Frequently Asked Questions</h3>
-                      <Card>
-                        <CardContent className="p-6">
-                          <h4 className="font-semibold mb-2">How long does it take to complete this service?</h4>
-                          <p className="text-gray-700">The service typically takes {currentService.delivery_time} to complete, depending on the complexity and your requirements.</p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent className="p-6">
-                          <h4 className="font-semibold mb-2">Can I request revisions?</h4>
-                          <p className="text-gray-700">Yes, I offer revisions to ensure you're completely satisfied with the final result.</p>
-                        </CardContent>
-                      </Card>
-                      <Card>
-                        <CardContent className="p-6">
-                          <h4 className="font-semibold mb-2">What if I'm not satisfied with the work?</h4>
-                          <p className="text-gray-700">I work closely with clients to ensure satisfaction. If needed, we can discuss adjustments or refunds.</p>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                  <div className="space-y-6">
+                    {reviews.length > 0 ? (
+                      reviews.map((review) => (
+                        <Card key={review.id} className="border border-gray-200">
+                          <CardContent className="p-6">
+                            <div className="flex items-start space-x-4">
+                              <Avatar className="h-12 w-12">
+                                <img src={review.user_avatar} alt={review.user_name} />
+                              </Avatar>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div>
+                                    <div className="font-semibold">{review.user_name}</div>
+                                    <div className="flex items-center space-x-2">
+                                      <div className="flex">
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                          <Star
+                                            key={star}
+                                            className={`h-4 w-4 ${
+                                              star <= review.rating
+                                                ? 'fill-yellow-400 text-yellow-400'
+                                                : 'text-gray-300'
+                                            }`}
+                                          />
+                                        ))}
+                                      </div>
+                                      <span className="text-sm text-gray-600">
+                                        {new Date(review.created_at).toLocaleDateString()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <p className="text-gray-700 leading-relaxed">{review.comment}</p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-gray-600">No reviews yet.</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border border-gray-200 rounded-2xl shadow-sm">
+                <CardHeader className="px-6 xl:px-8">
+                  <CardTitle className="text-2xl">Frequently Asked Questions</CardTitle>
+                </CardHeader>
+                <CardContent className="px-6 pb-6 xl:px-8 xl:pb-8 space-y-4">
+                  <Card className="border border-gray-200">
+                    <CardContent className="p-6">
+                      <h4 className="font-semibold mb-2">How long does it take to complete this service?</h4>
+                      <p className="text-gray-700">The service typically takes {currentService.delivery_time} to complete, depending on the complexity and your requirements.</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border border-gray-200">
+                    <CardContent className="p-6">
+                      <h4 className="font-semibold mb-2">Can I request revisions?</h4>
+                      <p className="text-gray-700">Yes, I offer revisions to ensure you're completely satisfied with the final result.</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border border-gray-200">
+                    <CardContent className="p-6">
+                      <h4 className="font-semibold mb-2">What if I'm not satisfied with the work?</h4>
+                      <p className="text-gray-700">I work closely with clients to ensure satisfaction. If needed, we can discuss adjustments or refunds.</p>
+                    </CardContent>
+                  </Card>
+                </CardContent>
               </Card>
             </div>
 
@@ -998,6 +965,109 @@ export default function ServiceDetail() {
           </div>
         </div>
       </div>
+
+      <Dialog open={Boolean(previewPortfolio)} onOpenChange={(open) => {
+        if (!open) {
+          setPreviewPortfolio(null);
+          setPreviewImageIndex(0);
+        }
+      }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <div className="flex items-start justify-between">
+              <DialogTitle>{previewPortfolio?.title}</DialogTitle>
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewPortfolio(null);
+                  setPreviewImageIndex(0);
+                }}
+                className="rounded-full p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {previewPortfolio?.category && (
+              <Badge variant="outline" className="w-fit">{previewPortfolio.category}</Badge>
+            )}
+          </DialogHeader>
+          <div className="space-y-4">
+            {previewPortfolio?.images && previewPortfolio.images.length > 0 ? (
+              <div className="space-y-3">
+                <div className="relative w-full h-72 overflow-hidden rounded-xl border">
+                  <img
+                    src={previewPortfolio.images[previewImageIndex]}
+                    alt={`${previewPortfolio.title} preview ${previewImageIndex + 1}`}
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                </div>
+                {previewPortfolio.images.length > 1 && (
+                  <div className="flex space-x-2 overflow-x-auto pb-1">
+                    {previewPortfolio.images.map((img: string, idx: number) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setPreviewImageIndex(idx)}
+                        className={`h-16 w-16 rounded-md overflow-hidden border ${
+                          previewImageIndex === idx ? 'border-primary ring-2 ring-primary/40' : 'border-gray-200'
+                        }`}
+                      >
+                        <img src={img} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="h-48 flex items-center justify-center rounded-xl bg-gray-100 text-gray-500">
+                No visuals uploaded
+              </div>
+            )}
+
+            {previewPortfolio?.description && (
+              <p className="text-sm text-gray-600 whitespace-pre-line">{previewPortfolio.description}</p>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 text-xs text-gray-500">
+              {previewPortfolio?.created_at && (
+                <div>
+                  <div className="font-medium text-gray-700">Created</div>
+                  <div>{new Date(previewPortfolio.created_at).toLocaleDateString()}</div>
+                </div>
+              )}
+              {previewPortfolio?.updated_at && (
+                <div>
+                  <div className="font-medium text-gray-700">Updated</div>
+                  <div>{new Date(previewPortfolio.updated_at).toLocaleDateString()}</div>
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="flex items-center justify-between pt-4">
+            {previewPortfolio?.link ? (
+              <a
+                href={previewPortfolio.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline"
+              >
+                View external project
+              </a>
+            ) : (
+              <span className="text-xs text-gray-500">No external link provided</span>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPreviewPortfolio(null);
+                setPreviewImageIndex(0);
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Footer />
       <MobileBottomNavbar />

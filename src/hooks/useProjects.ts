@@ -1,6 +1,24 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
+// Deterministic daily shuffle helper
+function dailyShuffle<T>(items: T[]): T[] {
+  if (!Array.isArray(items) || items.length <= 1) return items;
+  const today = new Date();
+  const seed = Number(
+    `${today.getUTCFullYear()}${String(today.getUTCMonth() + 1).padStart(2, '0')}${String(today.getUTCDate()).padStart(2, '0')}`
+  );
+  // Simple seeded PRNG (LCG)
+  let s = seed % 2147483647;
+  const rand = () => (s = (s * 48271) % 2147483647) / 2147483647;
+  const arr = items.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 export interface Project {
   id: string;
   user_id: string;
@@ -19,6 +37,9 @@ export interface Project {
   status: 'pending' | 'open' | 'in_progress' | 'completed' | 'cancelled';
   created_at: string;
   updated_at: string;
+  is_featured?: boolean;
+  featured_until?: string | null;
+  featured_reason?: string | null;
 }
 
 export interface Bid {
@@ -57,7 +78,9 @@ export interface Service {
   requirements?: string[];
   images?: string[];
   is_active?: boolean;
-  featured?: boolean;
+  is_featured?: boolean;
+  featured_until?: string;
+  featured_reason?: string;
   rating?: number;
   review_count?: number;
   created_at: string;
@@ -223,8 +246,6 @@ export function useProjectBids(projectId: string | undefined) {
               name,
               username,
               avatar,
-              rating,
-              review_count,
               company,
               job_title,
               location,
@@ -617,18 +638,24 @@ export function useFeaturedProjects(sellerId: string | undefined) {
     async function fetchFeaturedProjects() {
       try {
         setLoading(true);
-        // Get high-budget projects that are open and not posted by this seller
-        const { data, error } = await (supabase as any)
+        const { data: featuredProjects, error: projErr } = await (supabase as any)
           .from('projects')
           .select('*')
           .eq('status', 'open')
+          .eq('is_featured', true)
           .neq('user_id', sellerId)
-          .gte('budget', 500) // Consider projects over £500 as featured
-          .order('budget', { ascending: false })
-          .limit(6);
+          .order('featured_until', { ascending: false, nullsLast: true })
+          .order('created_at', { ascending: false })
+          .limit(24);
+        if (projErr) throw projErr;
 
-        if (error) throw error;
-        setProjects(data || []);
+        const activeFeatured = (featuredProjects || []).filter((project: Project) => {
+          if (!project.featured_until) return true;
+          return new Date(project.featured_until) > new Date();
+        });
+
+        const shuffled = dailyShuffle<Project>(activeFeatured);
+        setProjects(shuffled.slice(0, 6));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch featured projects');
       } finally {
@@ -697,8 +724,6 @@ export function useSellerServices(sellerId: string | undefined) {
               name,
               username,
               avatar,
-              rating,
-              review_count,
               company,
               job_title,
               location
@@ -734,8 +759,6 @@ export function useSellerServices(sellerId: string | undefined) {
             name,
             username,
             avatar,
-            rating,
-            review_count,
             company,
             job_title,
             location
@@ -837,8 +860,6 @@ export function useServiceDetail(serviceId: string | undefined) {
               name,
               username,
               avatar,
-              rating,
-              review_count,
               company,
               job_title,
               location
@@ -1003,9 +1024,7 @@ export function useRelatedServices(serviceId: string | undefined, category?: str
               id,
               name,
               username,
-              avatar,
-              rating,
-              review_count
+              avatar
             )
           `)
           .eq('category', category)
@@ -1060,8 +1079,6 @@ export function useSellerProfile(sellerId: string | undefined) {
             username,
             email,
             avatar,
-            rating,
-            review_count,
             company,
             job_title,
             location,
@@ -1073,7 +1090,32 @@ export function useSellerProfile(sellerId: string | undefined) {
           .single();
 
         if (error) throw error;
-        setSeller(data);
+        let computedRating = 0;
+        let computedReviewCount = 0;
+
+        const { data: reviewsData, error: reviewsError } = await (supabase as any)
+          .from('reviews')
+          .select('rating')
+          .eq('reviewee_id', sellerId);
+
+        if (reviewsError) {
+          console.error('Failed to load seller reviews for profile:', reviewsError);
+        } else if (reviewsData) {
+          computedReviewCount = reviewsData.length;
+          if (computedReviewCount > 0) {
+            const totalRating = (reviewsData as { rating: number }[]).reduce(
+              (sum, review) => sum + Number(review.rating || 0),
+              0
+            );
+            computedRating = totalRating / computedReviewCount;
+          }
+        }
+
+        setSeller({
+          ...data,
+          rating: parseFloat(computedRating.toFixed(1)),
+          review_count: computedReviewCount
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch seller profile');
       } finally {
@@ -1133,8 +1175,6 @@ export function useServices() {
               name,
               username,
               avatar,
-              rating,
-              review_count,
               company,
               job_title,
               location
@@ -1156,16 +1196,19 @@ export function useServices() {
         })));
         
         // Modify data to show only username for buyers
-        const modifiedData = (data as any)?.map((service: any) => ({
+        const modifiedData: Service[] = (data as any)?.map((service: any) => ({
           ...service,
           provider: {
             ...service.provider,
-            // Buyers see only username, not real name
             name: service.provider?.username || 'Unknown Seller'
           }
-        }));
-        
-        setServices(modifiedData || []);
+        })) || [];
+
+        // Prioritize featured services, shuffle featured daily, then append non-featured
+        const featured = modifiedData.filter((s: any) => s.is_featured === true && (!s.featured_until || new Date(s.featured_until) > new Date()));
+        const nonFeatured = modifiedData.filter((s: any) => !featured.includes(s as any));
+        const shuffledFeatured = dailyShuffle(featured);
+        setServices([...shuffledFeatured, ...nonFeatured]);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch services');
       } finally {

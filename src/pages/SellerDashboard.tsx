@@ -63,6 +63,10 @@ export default function SellerDashboard() {
   const [recentReviews, setRecentReviews] = useState<any[]>([]);
   const [avgRating, setAvgRating] = useState<number>(0);
   const [totalReviews, setTotalReviews] = useState<number>(0);
+  // Seller Plus status
+  const [sellerPlusActive, setSellerPlusActive] = useState<boolean>(false);
+  const [sellerPlusEndsAt, setSellerPlusEndsAt] = useState<string | null>(null);
+  const [sellerPlusLoading, setSellerPlusLoading] = useState<boolean>(true);
   const [profileCompletion, setProfileCompletion] = useState({ 
     percentage: 0, 
     level: 'Beginner', 
@@ -76,6 +80,74 @@ export default function SellerDashboard() {
   });
 
   console.log('SellerDashboard render:', { user: user?.id, userRole: user?.role });
+
+  // Load Seller Plus subscription status
+  useEffect(() => {
+    const loadSellerPlus = async () => {
+      if (!user?.id) { setSellerPlusActive(false); setSellerPlusEndsAt(null); setSellerPlusLoading(false); return; }
+      try {
+        setSellerPlusLoading(true);
+        const { data, error } = await (supabase as any)
+          .from('seller_subscriptions')
+          .select('status, ends_at')
+          .eq('seller_id', user.id)
+          .eq('status', 'active')
+          .order('ends_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error && error.code !== 'PGRST116') throw error;
+        const active = !!data && (!data.ends_at || new Date(data.ends_at) > new Date());
+        setSellerPlusActive(active);
+        setSellerPlusEndsAt(data?.ends_at || null);
+      } catch (e) {
+        setSellerPlusActive(false);
+        setSellerPlusEndsAt(null);
+      } finally {
+        setSellerPlusLoading(false);
+      }
+    };
+    loadSellerPlus();
+  }, [user?.id]);
+
+  const activateSellerPlus = async () => {
+    if (!user?.id) { toast.error('You must be logged in'); return; }
+    try {
+      setSellerPlusLoading(true);
+      // Prevent duplicate active
+      const { data: existing, error: existErr } = await (supabase as any)
+        .from('seller_subscriptions')
+        .select('id, status, ends_at')
+        .eq('seller_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (existErr) throw existErr;
+      if (existing && (!existing.ends_at || new Date(existing.ends_at) > new Date())) {
+        toast.success('Seller Plus already active');
+        setSellerPlusActive(true);
+        setSellerPlusEndsAt(existing.ends_at || null);
+        return;
+      }
+      // Create subscription for 30 days
+      const endsAt = new Date();
+      endsAt.setDate(endsAt.getDate() + 30);
+      const { error: insErr } = await (supabase as any)
+        .from('seller_subscriptions')
+        .insert({ seller_id: user.id, status: 'active', plan_slug: 'seller-plus', ends_at: endsAt.toISOString() });
+      if (insErr) throw insErr;
+      // Call RPC to sync services featured flags
+      try {
+        await (supabase as any).rpc('mark_services_featured_for_seller', { _seller: user.id });
+      } catch {}
+      setSellerPlusActive(true);
+      setSellerPlusEndsAt(endsAt.toISOString());
+      toast.success('Seller Plus activated! Your services are now featured.');
+    } catch (e: any) {
+      console.error('activateSellerPlus error', e);
+      toast.error(e?.message || 'Failed to activate Seller Plus');
+    } finally {
+      setSellerPlusLoading(false);
+    }
+  };
 
   // Token plans for quick purchase
   const TOKEN_PRICE_GBP = 5;
@@ -781,6 +853,21 @@ export default function SellerDashboard() {
                 <Badge className="bg-white/20 text-xs sm:text-sm text-white border-white/30 px-2.5 py-1 sm:px-3">
                   Profile {profileCompletion.percentage}% complete
                 </Badge>
+                {sellerPlusActive ? (
+                  <Badge className="bg-yellow-400/90 text-xs sm:text-sm text-black border-white/30 px-2.5 py-1 sm:px-3">
+                    Featured (Seller Plus){sellerPlusEndsAt ? ` · until ${new Date(sellerPlusEndsAt).toLocaleDateString()}` : ''}
+                  </Badge>
+                ) : (
+                  <Button
+                    onClick={activateSellerPlus}
+                    variant="outline"
+                    size="sm"
+                    className="bg-white/10 border-white/30 text-xs sm:text-sm text-white hover:bg-white/20 px-3 sm:px-4"
+                    disabled={sellerPlusLoading}
+                  >
+                    {sellerPlusLoading ? 'Processing…' : 'Get Seller Plus (£50/mo)'}
+                  </Button>
+                )}
                 <Button 
                   onClick={() => window.location.reload()} 
                   variant="outline" 

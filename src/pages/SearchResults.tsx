@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { Footer } from '../components/Footer';
@@ -50,7 +50,7 @@ const getServiceLocation = (service: any) => {
 const getProjectLocation = (project: any) => (project?.location || '').trim();
 
 // ServiceCard component - simplified to use provider data directly
-const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ServiceCardProps) => {
+const ServiceCard = ({ service, wrapperClassName = 'w-full' }: ServiceCardProps) => {
   const displayUsername = service.provider?.username || 'adventurousdiamond48';
 
   const isOnline = serviceIsOnline(service);
@@ -58,7 +58,7 @@ const ServiceCard = ({ service, wrapperClassName = 'flex-none w-[260px] sm:w-[30
   return (
     <div className={wrapperClassName}>
       <Link to={`/service/${service.id}`} className="block h-full">
-        <Card className="h-[420px] hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer flex flex-col">
+        <Card className="h-full min-h-[420px] hover:shadow-xl transition-all duration-300 border-0 shadow-md overflow-hidden group cursor-pointer flex flex-col">
           {/* Large Service Image - FIRST GIG IMAGE AS TITLE */}
           <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
             {service.images && service.images.length > 0 ? (
@@ -180,14 +180,14 @@ interface ProjectCardProps {
   wrapperClassName?: string;
 }
 
-const ProjectCard = ({ project, wrapperClassName = 'flex-none w-[260px] sm:w-[300px] snap-start md:w-auto' }: ProjectCardProps) => {
+const ProjectCard = ({ project, wrapperClassName = 'w-full' }: ProjectCardProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isPro } = useIsPro(project?.buyer_id);
 
   return (
     <div className={wrapperClassName}>
-      <Card className="h-full hover:shadow-md transition-shadow">
+      <Card className="h-full hover:shadow-md transition-shadow flex flex-col">
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
             <CardTitle className="text-base line-clamp-2 flex-1 min-w-0 flex items-center gap-2">
@@ -259,9 +259,7 @@ export default function SearchResults() {
   const service = searchParams.get('service') || '';
   const serviceLower = service.toLowerCase();
   const location = searchParams.get('location') || '';
-
-  const [activeFilter, setActiveFilter] = useState<FilterOption>('top-rated');
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const filterParam = searchParams.get('filter') || '';
 
   const { user } = useAuth();
   const isSeller = user?.role === 'provider';
@@ -272,6 +270,20 @@ export default function SearchResults() {
   const { projects: availableProjects, loading: projectsLoading } = useAvailableProjects(user?.id);
 
   const loading = servicesLoading || projectsLoading;
+
+  const [activeFilter, setActiveFilter] = useState<FilterOption>(() => filterParam === 'featured' ? 'rating-high-low' : 'top-rated');
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
+
+  useEffect(() => {
+    setActiveFilter(filterParam === 'featured' ? 'rating-high-low' : 'top-rated');
+    setPage(1);
+  }, [filterParam]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [service, location, selectedLocations, activeFilter, isSeller]);
 
   // Filter results by search query and location based on user role
   const ukCities = useMemo(() => (
@@ -293,7 +305,10 @@ export default function SearchResults() {
 
     const locationMatchFromQuery = !location || (svc.provider?.location && svc.provider.location.toLowerCase().includes(location.toLowerCase()));
     const locationMatchFilter = selectedLocations.length === 0 || selectedLocations.includes(getServiceLocation(svc));
-    return serviceMatch && locationMatchFromQuery && locationMatchFilter;
+    const featuredMatch = filterParam !== 'featured'
+      ? true
+      : svc.is_featured === true && (!svc.featured_until || new Date(svc.featured_until) > new Date());
+    return serviceMatch && locationMatchFromQuery && locationMatchFilter && featuredMatch;
   });
 
   const filteredProjects = availableProjects.filter(project => {
@@ -307,7 +322,10 @@ export default function SearchResults() {
 
     const locationMatchFromQuery = !location || project.location.toLowerCase().includes(location.toLowerCase());
     const locationMatchFilter = selectedLocations.length === 0 || selectedLocations.includes(getProjectLocation(project));
-    return projectMatch && locationMatchFromQuery && locationMatchFilter;
+    const featuredMatch = filterParam !== 'featured'
+      ? true
+      : project.is_featured === true && (!project.featured_until || new Date(project.featured_until) > new Date());
+    return projectMatch && locationMatchFromQuery && locationMatchFilter && featuredMatch;
   });
 
   const applyServiceFilters = useMemo(() => {
@@ -318,7 +336,9 @@ export default function SearchResults() {
         servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
         break;
       case 'top-rated':
-        servicesList = servicesList.filter((svc) => (svc.provider?.rating || 0) >= 4.5);
+        if (filterParam !== 'featured') {
+          servicesList = servicesList.filter((svc) => (svc.provider?.rating || 0) >= 4.5);
+        }
         servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
         break;
       case 'rating-high-low':
@@ -353,8 +373,25 @@ export default function SearchResults() {
     return projectsList;
   }, [filteredProjects, activeFilter]);
 
-  const resultsType = isSeller ? 'projects' : 'services';
-  const sortedResults = isSeller ? applyProjectFilters : applyServiceFilters;
+  const baseResultsType = isSeller ? 'projects' : 'services';
+  const resultsType = filterParam === 'featured' ? `featured ${baseResultsType}` : baseResultsType;
+  const sortedResults = useMemo(() => (isSeller ? applyProjectFilters : applyServiceFilters), [applyProjectFilters, applyServiceFilters, isSeller]);
+  const totalResults = sortedResults.length;
+  const totalPages = Math.max(1, Math.ceil(totalResults / PAGE_SIZE));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pagedResults = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return sortedResults.slice(start, start + PAGE_SIZE);
+  }, [sortedResults, page]);
+
+  const startIndex = totalResults === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const endIndex = Math.min(page * PAGE_SIZE, totalResults);
 
   return (
     <DashboardLayout>
@@ -416,7 +453,7 @@ export default function SearchResults() {
                 {location && <span className="text-gray-600"> in {location}</span>}
               </h1>
               <p className="text-gray-600 mt-2">
-                {sortedResults.length} {resultsType} available
+                {totalResults} {resultsType} available
               </p>
             </div>
             <DropdownMenu>
@@ -488,8 +525,8 @@ export default function SearchResults() {
             Loading {resultsType}...
           </div>
         ) : (
-          <div className="flex flex-wrap gap-6 justify-center md:justify-start">
-            {sortedResults.map((item) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+            {pagedResults.map((item) => (
               isSeller ? (
                 <ProjectCard key={item.id} project={item} />
               ) : (
@@ -499,17 +536,28 @@ export default function SearchResults() {
           </div>
         )}
 
-        {/* Load More */}
-        {sortedResults.length >= 20 && !loading && (
-          <div className="text-center mt-8">
-            <Button variant="outline" size="lg">
-              Load More {resultsType}
-            </Button>
+        {/* Pagination */}
+        {!loading && totalResults > 0 && (
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mt-8">
+            <div className="text-sm text-gray-500">
+              Showing {startIndex}-{endIndex} of {totalResults} {resultsType}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-3">
+                <Button variant="outline" size="sm" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>
+                  Previous
+                </Button>
+                <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
+                <Button variant="outline" size="sm" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>
+                  Next
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
         {/* No Results */}
-        {!loading && sortedResults.length === 0 && (
+        {!loading && totalResults === 0 && (
           <div className="text-center py-12">
             <div className="text-gray-400 mb-4">
               <Search className="h-16 w-16 mx-auto" />
