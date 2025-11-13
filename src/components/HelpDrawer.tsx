@@ -5,6 +5,7 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
 import { Input } from './ui/input';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion';
 import {
   Sheet,
   SheetContent,
@@ -237,6 +238,37 @@ export function HelpDrawer({ open, onOpenChange }: HelpDrawerProps) {
               </Button>
             </div>
           </div>
+
+          {/* Safety & Security Quick Info */}
+          <Accordion type="single" collapsible className="border rounded-lg bg-blue-50/60">
+            <AccordionItem value="safety-security">
+              <AccordionTrigger className="px-4">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  <h3 className="font-semibold tracking-tight text-base">Safety & Security</h3>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-4 space-y-3 text-sm text-gray-700">
+                <p>We prioritise buyer safety. All payments are protected in escrow until you approve the work, and providers undergo verification checks including identity and compliance reviews.</p>
+                <ul className="list-disc ml-5 space-y-2">
+                  <li>Secure checkout with PCI-compliant processors and optional two-factor authentication for your account.</li>
+                  <li>Dedicated trust & safety team monitoring orders for suspicious activity.</li>
+                  <li>Full data protection: we encrypt personal information and never share files outside your project workspace.</li>
+                </ul>
+                <div className="pt-2 flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="justify-start" onClick={() => setSearchQuery('two-factor')}>
+                    Enable 2FA
+                  </Button>
+                  <Button variant="outline" size="sm" className="justify-start" onClick={() => setSearchQuery('dispute')}>
+                    Dispute Guidelines
+                  </Button>
+                  <Button variant="outline" size="sm" className="justify-start" onClick={() => setSearchQuery('data protection')}>
+                    Data Protection
+                  </Button>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
 
           <Separator />
 

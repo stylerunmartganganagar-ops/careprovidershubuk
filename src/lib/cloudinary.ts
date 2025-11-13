@@ -4,6 +4,7 @@ export const uploadToCloudinary = async (
   options: {
     folder?: string;
     public_id?: string;
+    resourceType?: 'image' | 'video' | 'raw' | 'auto';
   } = {}
 ): Promise<string> => {
   const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dg9paem89';
@@ -22,9 +23,11 @@ export const uploadToCloudinary = async (
     formData.append('public_id', options.public_id);
   }
 
+  const resourceType = options.resourceType || 'auto';
+
   try {
     const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+      `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
       {
         method: 'POST',
         body: formData,

@@ -219,56 +219,32 @@ export default function DashboardPage() {
       console.log('🔄 FETCHING DASHBOARD STATS FOR USER:', user.id);
 
       try {
-        console.log('📊 Fetching active orders count...');
-        const [
-          { count: activeOrders, error: activeError },
-          { count: activeMilestoneOrders, error: activeMilestoneError },
-          { data: completedOrdersData, error: completedError },
-          { count: completedMilestoneOrders, error: completedMilestoneError }
-        ] = await Promise.all([
-          supabase
-            .from('orders')
-            .select('*', { count: 'exact', head: true })
-            .eq('buyer_id', user.id)
-            .in('status', ['pending', 'in_progress']),
-          supabase
-            .from('milestone_orders')
-            .select('*', { count: 'exact', head: true })
-            .eq('buyer_id', user.id)
-            .in('status', ['pending', 'in_progress']),
-          supabase
-            .from('orders')
-            .select('price')
-            .eq('buyer_id', user.id)
-            .eq('status', 'completed'),
-          supabase
-            .from('milestone_orders')
-            .select('*', { count: 'exact', head: true })
-            .eq('buyer_id', user.id)
-            .eq('status', 'completed')
-        ]);
+        console.log('📊 Fetching buyer orders summary...');
+        const { data: buyerOrdersData, error: buyerOrdersError } = await supabase
+          .from('orders')
+          .select('status, price')
+          .eq('buyer_id', user.id);
 
-        console.log('📊 Active orders result:', {
-          orders: activeOrders,
-          milestoneOrders: activeMilestoneOrders,
-          activeError,
-          activeMilestoneError
+        if (buyerOrdersError) throw buyerOrdersError;
+
+        const activeOrdersCount = (buyerOrdersData || []).filter((order: any) => order.status && order.status !== 'completed').length;
+        const completedOrdersCount = (buyerOrdersData || []).filter((order: any) => order.status === 'completed').length;
+
+        console.log('📊 Buyer orders summary:', {
+          total: buyerOrdersData?.length,
+          activeOrdersCount,
+          completedOrdersCount
         });
 
-        console.log('💰 Completed orders query result:', {
-          data: completedOrdersData,
-          error: completedError,
-          milestoneCompleted: completedMilestoneOrders,
-          completedMilestoneError
-        });
-
-        const totalSpent = (completedOrdersData || []).reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
+        const totalSpent = (buyerOrdersData || [])
+          .filter((order: any) => order.status === 'completed')
+          .reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
 
         console.log('💰 CALCULATED totalSpent:', totalSpent);
-        console.log('💰 Individual order prices:', (completedOrdersData || []).map((o: any) => o.price));
+        console.log('💰 Individual order prices:', (buyerOrdersData || []).filter((o: any) => o.status === 'completed').map((o: any) => o.price));
 
-        const completedCount = (completedOrdersData?.length || 0) + (completedMilestoneOrders || 0);
-        console.log('📊 Completed orders count (with milestones):', completedCount);
+        const completedCount = completedOrdersCount;
+        console.log('📊 Completed orders count:', completedCount);
 
         // Get messages count (unique unread conversations)
         console.log('💬 Fetching unique unread conversations count...');
@@ -302,7 +278,7 @@ export default function DashboardPage() {
 
         const newStats = {
           orders: {
-            active: (activeOrders || 0) + (activeMilestoneOrders || 0),
+            active: activeOrdersCount,
             completed: completedCount,
             totalSpent,
             saved: Math.floor(totalSpent * 0.1) // Estimate 10% savings

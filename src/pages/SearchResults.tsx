@@ -354,7 +354,7 @@ export default function SearchResults() {
   });
 
   const applyServiceFilters = useMemo(() => {
-    let servicesList = [...filteredServices];
+    let servicesList = dailyShuffle(filteredServices);
     switch (activeFilter) {
       case 'active-now':
         servicesList = servicesList.filter(serviceIsOnline);
@@ -362,7 +362,10 @@ export default function SearchResults() {
         break;
       case 'top-rated':
         if (!disableTopRatedThreshold) {
-          servicesList = servicesList.filter((svc) => (svc.provider?.rating || 0) >= 4.5);
+          const highRated = servicesList.filter((svc) => (svc.provider?.rating || 0) >= 4.5);
+          if (highRated.length > 0) {
+            servicesList = highRated;
+          }
         }
         servicesList.sort((a, b) => (b.provider?.rating || 0) - (a.provider?.rating || 0));
         break;

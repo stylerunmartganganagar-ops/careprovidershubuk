@@ -14,6 +14,7 @@ import { ArrowLeft, Plus, X, Calendar, DollarSign, MapPin, Clock, Users, AlertCi
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth.tsx';
 import { useCreateProject } from '../hooks/useProjects';
+import { uploadToCloudinary } from '../lib/cloudinary';
 
 export default function PostProject() {
   const navigate = useNavigate();
@@ -147,6 +148,30 @@ export default function PostProject() {
       }
 
       try {
+        let attachmentUrls: string[] = [];
+
+        if (formData.attachments.length > 0) {
+          attachmentUrls = await Promise.all(
+            formData.attachments.map(async (file) => {
+              const resourceType = file.type.startsWith('image/')
+                ? 'image'
+                : file.type.startsWith('video/')
+                  ? 'video'
+                  : 'auto';
+
+              try {
+                return await uploadToCloudinary(file, {
+                  folder: `projects/${user.id}`,
+                  resourceType
+                });
+              } catch (uploadError) {
+                console.error('Attachment upload failed:', uploadError);
+                throw new Error(`Failed to upload "${file.name}". Please try again.`);
+              }
+            })
+          );
+        }
+
         await createProject({
           user_id: user.id,
           title: formData.title.trim(),
@@ -160,11 +185,26 @@ export default function PostProject() {
           urgency: formData.urgency as 'low' | 'medium' | 'high',
           skills: formData.skills,
           requirements: formData.requirements ? formData.requirements.trim() : null,
-          attachments: null,
+          attachments: attachmentUrls.length > 0 ? attachmentUrls : null,
           status: 'pending'
         });
 
         toast.success('Project submitted successfully!');
+        setFormData((prev) => ({
+          ...prev,
+          title: '',
+          category: '',
+          subcategory: '',
+          description: '',
+          budget: '',
+          budgetType: 'fixed',
+          location: '',
+          deadline: '',
+          urgency: 'medium',
+          skills: [],
+          requirements: '',
+          attachments: []
+        }));
         navigate(`/home/${user.id}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to post project';
@@ -372,9 +412,10 @@ export default function PostProject() {
                         id="attachments"
                         type="file"
                         multiple
-                        accept=".pdf,.doc,.docx,.jpg,.png"
+                        accept=".pdf,.doc,.docx,.jpg,.png,.jpeg,.gif,.webp,.mp4,.mov,.avi"
                         onChange={handleFileChange}
                       />
+
                       <p className="text-sm text-gray-500 mt-1">
                         Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10MB each)
                       </p>

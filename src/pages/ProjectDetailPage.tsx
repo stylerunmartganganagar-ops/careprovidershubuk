@@ -22,7 +22,9 @@ import {
   CheckCircle,
   XCircle,
   Send,
-  User
+  User,
+  Paperclip,
+  FileText
 } from 'lucide-react';
 import { useProjectDetail, useProjectBids, useUpdateBidStatus } from '../hooks/useProjects';
 
@@ -100,6 +102,9 @@ export default function ProjectDetailPage() {
 
   // Check if user is the project owner
   const isOwner = project.user_id === user?.id;
+
+  const isImageAttachment = (url: string) => /\.(jpe?g|png|gif|webp|avif)$/i.test(url);
+  const isVideoAttachment = (url: string) => /\.(mp4|mov|avi|webm|mkv)$/i.test(url);
 
   const handleAcceptBid = async (bidId: string) => {
     try {
@@ -227,6 +232,74 @@ export default function ProjectDetailPage() {
                   <div>
                     <h4 className="font-semibold mb-2">Additional Requirements</h4>
                     <p className="text-gray-700 text-sm">{project.requirements}</p>
+                  </div>
+                )}
+
+                {project.attachments && project.attachments.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                      <Paperclip className="h-4 w-4" /> Attachments
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {project.attachments.map((url: string, idx: number) => {
+                        const label = url.split('/').slice(-1)[0];
+                        if (isImageAttachment(url)) {
+                          return (
+                            <a
+                              key={idx}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="group block overflow-hidden rounded-lg border hover:shadow-md transition-shadow"
+                            >
+                              <img
+                                src={url}
+                                alt={label || `attachment-${idx + 1}`}
+                                className="h-48 w-full object-cover group-hover:scale-[1.02] transition-transform"
+                                loading="lazy"
+                              />
+                              <div className="px-3 py-2 border-t text-sm truncate text-gray-600">
+                                {label || `Attachment ${idx + 1}`}
+                              </div>
+                            </a>
+                          );
+                        }
+
+                        if (isVideoAttachment(url)) {
+                          return (
+                            <div key={idx} className="rounded-lg border overflow-hidden">
+                              <video
+                                src={url}
+                                controls
+                                className="w-full h-48 bg-black"
+                              />
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center justify-between px-3 py-2 text-sm text-gray-600 border-t hover:text-primary transition-colors"
+                              >
+                                <span className="truncate">{label || `Video ${idx + 1}`}</span>
+                                <FileText className="h-4 w-4" />
+                              </a>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <a
+                            key={idx}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 rounded-lg border px-4 py-3 hover:border-primary hover:text-primary transition-colors"
+                          >
+                            <FileText className="h-5 w-5" />
+                            <span className="truncate text-sm">{label || `Attachment ${idx + 1}`}</span>
+                          </a>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </CardContent>
