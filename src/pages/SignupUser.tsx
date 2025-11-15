@@ -14,6 +14,7 @@ import {
 } from '../components/ui/dialog';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
+import { useCategories } from '../hooks/useCategories';
 
 interface RegistrationData {
   service: string;
@@ -39,6 +40,7 @@ interface SignupUserProps {
 export default function SignupUser({ open, onOpenChange, initialService, initialLocation }: SignupUserProps) {
   const navigate = useNavigate();
   const auth = useAuth();
+  const { categories, loading: categoriesLoading, error: categoriesError } = useCategories();
   const [currentStep, setCurrentStep] = useState(1);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [isWaitingForConfirmation, setIsWaitingForConfirmation] = useState(false);
@@ -203,43 +205,99 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
                 Select the primary service you're looking for
               </p>
             </div>
+            {categoriesLoading && (
+              <p className="text-sm text-muted-foreground text-center">
+                Loading services...
+              </p>
+            )}
 
-            <div className="grid grid-cols-1 gap-3">
-              {[
-                { value: "cqc", label: "CQC Registration", desc: "Get compliant with Care Quality Commission" },
-                { value: "consulting", label: "Business Consulting", desc: "Strategic business advice and planning" },
-                { value: "software", label: "Care Software", desc: "Digital solutions for care management" },
-                { value: "training", label: "Training Services", desc: "Staff development and compliance training" },
-                { value: "visa", label: "Sponsor Visa", desc: "Work visa sponsorship services" },
-                { value: "accounting", label: "Accounting", desc: "Financial services and bookkeeping" },
-              ].map((service) => (
-                <div
-                  key={service.value}
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                    formData.service === service.value
-                      ? 'border-primary bg-primary/5'
-                      : 'border-gray-200 hover:border-primary/50'
-                  }`}
-                  onClick={() => handleChange('service', service.value)}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-4 h-4 rounded-full border-2 ${
-                      formData.service === service.value
-                        ? 'border-primary bg-primary'
-                        : 'border-gray-300'
-                    }`}>
-                      {formData.service === service.value && (
-                        <div className="w-full h-full rounded-full bg-white scale-50"></div>
+            {!categoriesLoading && categoriesError && (
+              <p className="text-sm text-red-500 text-center">
+                Unable to load services. Please try again.
+              </p>
+            )}
+
+            {!categoriesLoading && !categoriesError && categories.length > 0 && (
+              <div className="space-y-4">
+                {categories.map((category) => (
+                  <div key={category.id} className="space-y-2">
+                    <h4 className="text-sm font-semibold text-gray-800">
+                      {category.name}
+                    </h4>
+                    <div className="grid grid-cols-1 gap-3">
+                      {category.subcategories && category.subcategories.length > 0 ? (
+                        category.subcategories.map((sub) => {
+                          const value = sub.name;
+                          const isSelected = formData.service === value;
+                          return (
+                            <div
+                              key={sub.id}
+                              className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                                isSelected
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-gray-200 hover:border-primary/50'
+                              }`}
+                              onClick={() => handleChange('service', value)}
+                            >
+                              <div className="flex items-center space-x-3">
+                                <div className={`w-4 h-4 rounded-full border-2 ${
+                                  isSelected
+                                    ? 'border-primary bg-primary'
+                                    : 'border-gray-300'
+                                }`}>
+                                  {isSelected && (
+                                    <div className="w-full h-full rounded-full bg-white scale-50"></div>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="font-medium">{sub.name}</div>
+                                  {sub.description && (
+                                    <div className="text-sm text-muted-foreground">{sub.description}</div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div
+                          className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                            formData.service === category.name
+                              ? 'border-primary bg-primary/5'
+                              : 'border-gray-200 hover:border-primary/50'
+                          }`}
+                          onClick={() => handleChange('service', category.name)}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-4 h-4 rounded-full border-2 ${
+                              formData.service === category.name
+                                ? 'border-primary bg-primary'
+                                : 'border-gray-300'
+                            }`}>
+                              {formData.service === category.name && (
+                                <div className="w-full h-full rounded-full bg-white scale-50"></div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-medium">{category.name}</div>
+                              {category.description && (
+                                <div className="text-sm text-muted-foreground">{category.description}</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
-                    <div>
-                      <div className="font-medium">{service.label}</div>
-                      <div className="text-sm text-muted-foreground">{service.desc}</div>
-                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
+
+            {!categoriesLoading && !categoriesError && categories.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center">
+                No services available yet.
+              </p>
+            )}
           </div>
         );
 
