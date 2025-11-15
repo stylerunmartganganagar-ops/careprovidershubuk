@@ -165,10 +165,6 @@ export function MobileBottomNavbar() {
                 <DollarSign className="mr-2 h-4 w-4" />
                 Payment History
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/favorites')}>
-                <Heart className="mr-2 h-4 w-4" />
-                Favorites
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/account-settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 Account Settings

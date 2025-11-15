@@ -136,18 +136,61 @@ export function SellerMobileBottomNavbar() {
             <span className="text-xs text-gray-600">Alerts</span>
           </Button>
 
-          {/* Profile (temporary simple button to isolate dropdown loop) */}
-          <Button
-            variant="ghost"
-            className="flex flex-col h-auto py-2 px-2 rounded-xl hover:bg-gray-100/80 transition-all duration-200 relative"
-            onClick={() => navigate('/user-profile')}
-            title={user?.email || 'Profile'}
-          >
-            <Avatar className="h-6 w-6 border-2 border-gray-200 mb-1">
-              <img src={user?.avatar} alt={user?.name} />
-            </Avatar>
-            <span className="text-xs text-gray-600">Profile</span>
-          </Button>
+          {/* Profile dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="flex flex-col h-auto py-2 px-2 rounded-xl hover:bg-gray-100/80 transition-all duration-200 relative"
+                title={user?.email || 'Profile'}
+              >
+                <Avatar className="h-6 w-6 border-2 border-gray-200 mb-1">
+                  <img src={user?.avatar} alt={user?.name} />
+                </Avatar>
+                <span className="text-xs text-gray-600">Profile</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" side="top" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user?.name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {user?.email}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate(`/seller/${user?.id}`)}>
+                <User className="mr-2 h-4 w-4" />
+                Seller Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/seller/services')}>
+                <Package className="mr-2 h-4 w-4" />
+                My Services
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/seller/my-bids')}>
+                <MessageSquare className="mr-2 h-4 w-4" />
+                My Bids
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/seller/wallet')}>
+                <DollarSign className="mr-2 h-4 w-4" />
+                Wallet
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/seller/tokens')}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                Tokens
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/account-settings')}>
+                <Settings className="mr-2 h-4 w-4" />
+                Account Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => logout()}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </nav>
 

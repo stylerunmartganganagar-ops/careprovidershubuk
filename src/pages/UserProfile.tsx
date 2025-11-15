@@ -181,10 +181,10 @@ export default function UserProfile() {
       if (!user?.id) return;
 
       try {
-        // Get user role
+        // Get basic user info and role (rating is computed from reviews, not stored on users)
         const { data: userData } = await supabase
           .from('users')
-          .select('role, created_at, rating, review_count, is_verified')
+          .select('role, created_at, review_count, is_verified')
           .eq('id', user.id)
           .single();
 
@@ -200,7 +200,7 @@ export default function UserProfile() {
         let activeProjects = 0;
         let totalReviews = 0;
         let avgBuyerRating = 0; // Declare at function scope
-        let providerRating = userDataTyped.rating || 0;
+        let providerRating = 0; // Will be derived from reviews for providers
 
         if (isProvider) {
           // For providers: count orders they've completed as sellers

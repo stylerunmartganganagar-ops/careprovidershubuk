@@ -15,14 +15,8 @@ import { Alert, AlertDescription } from '../components/ui/alert';
 import {
   ArrowLeft,
   Shield,
-  Bell,
-  Eye,
   Lock,
-  Mail,
-  Smartphone,
-  Globe,
   Save,
-  AlertTriangle,
   CheckCircle
 } from 'lucide-react';
 
@@ -48,8 +42,8 @@ export default function AccountSettings() {
             created_at,
             plans (
               name,
-              price,
-              interval
+              price_cents,
+              billing_interval
             )
           `)
           .eq('buyer_id', user.id)
@@ -71,44 +65,12 @@ export default function AccountSettings() {
     fetchSubscription();
   }, [user?.id]);
 
-  const [notifications, setNotifications] = useState({
-    email: {
-      orderUpdates: true,
-      messages: true,
-      marketing: false,
-      security: true
-    },
-    push: {
-      orderUpdates: true,
-      messages: true,
-      reminders: false
-    }
-  });
-
-  const [privacy, setPrivacy] = useState({
-    profileVisibility: 'public',
-    showEmail: false,
-    showPhone: false,
-    allowMessages: true,
-    dataSharing: false
-  });
-
   const [security, setSecurity] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
     twoFactorEnabled: false
   });
-
-  const handleSaveNotifications = () => {
-    // Save notification settings
-    console.log('Saving notification settings:', notifications);
-  };
-
-  const handleSavePrivacy = () => {
-    // Save privacy settings
-    console.log('Saving privacy settings:', privacy);
-  };
 
   const handleChangePassword = () => {
     // Change password logic
@@ -147,298 +109,11 @@ export default function AccountSettings() {
           </div>
         </div>
 
-        <Tabs defaultValue="notifications" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="privacy">Privacy</TabsTrigger>
+        <Tabs defaultValue="account" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="notifications" className="mt-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Mail className="h-5 w-5 mr-2" />
-                    Email Notifications
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="order-updates">Order Updates</Label>
-                      <p className="text-sm text-gray-600">Get notified about order status changes</p>
-                    </div>
-                    <Switch
-                      id="order-updates"
-                      checked={notifications.email.orderUpdates}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          email: {...notifications.email, orderUpdates: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="messages">Messages</Label>
-                      <p className="text-sm text-gray-600">Receive notifications for new messages</p>
-                    </div>
-                    <Switch
-                      id="messages"
-                      checked={notifications.email.messages}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          email: {...notifications.email, messages: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="marketing">Marketing</Label>
-                      <p className="text-sm text-gray-600">Receive promotional emails and updates</p>
-                    </div>
-                    <Switch
-                      id="marketing"
-                      checked={notifications.email.marketing}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          email: {...notifications.email, marketing: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="security">Security Alerts</Label>
-                      <p className="text-sm text-gray-600">Important security notifications</p>
-                    </div>
-                    <Switch
-                      id="security"
-                      checked={notifications.email.security}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          email: {...notifications.email, security: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <Button onClick={handleSaveNotifications} className="w-full">
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Email Settings
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Smartphone className="h-5 w-5 mr-2" />
-                    Push Notifications
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="push-order-updates">Order Updates</Label>
-                      <p className="text-sm text-gray-600">Push notifications for order changes</p>
-                    </div>
-                    <Switch
-                      id="push-order-updates"
-                      checked={notifications.push.orderUpdates}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          push: {...notifications.push, orderUpdates: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="push-messages">Messages</Label>
-                      <p className="text-sm text-gray-600">Push notifications for new messages</p>
-                    </div>
-                    <Switch
-                      id="push-messages"
-                      checked={notifications.push.messages}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          push: {...notifications.push, messages: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="push-reminders">Reminders</Label>
-                      <p className="text-sm text-gray-600">Deadline and task reminders</p>
-                    </div>
-                    <Switch
-                      id="push-reminders"
-                      checked={notifications.push.reminders}
-                      onCheckedChange={(checked) =>
-                        setNotifications({
-                          ...notifications,
-                          push: {...notifications.push, reminders: checked}
-                        })
-                      }
-                    />
-                  </div>
-
-                  <Alert>
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>
-                      Push notifications require browser permission. Make sure to allow notifications when prompted.
-                    </AlertDescription>
-                  </Alert>
-
-                  <Button onClick={handleSaveNotifications} className="w-full">
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Push Settings
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="privacy" className="mt-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Eye className="h-5 w-5 mr-2" />
-                    Profile Visibility
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        id="public"
-                        name="profile-visibility"
-                        value="public"
-                        checked={privacy.profileVisibility === 'public'}
-                        onChange={(e) => setPrivacy({...privacy, profileVisibility: e.target.value})}
-                      />
-                      <Label htmlFor="public">Public</Label>
-                      <span className="text-sm text-gray-600">Anyone can see your profile</span>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        id="private"
-                        name="profile-visibility"
-                        value="private"
-                        checked={privacy.profileVisibility === 'private'}
-                        onChange={(e) => setPrivacy({...privacy, profileVisibility: e.target.value})}
-                      />
-                      <Label htmlFor="private">Private</Label>
-                      <span className="text-sm text-gray-600">Only verified providers can see your profile</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-4">
-                    <div>
-                      <Label htmlFor="show-email">Show Email</Label>
-                      <p className="text-sm text-gray-600">Display your email on your profile</p>
-                    </div>
-                    <Switch
-                      id="show-email"
-                      checked={privacy.showEmail}
-                      onCheckedChange={(checked) => setPrivacy({...privacy, showEmail: checked})}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="show-phone">Show Phone</Label>
-                      <p className="text-sm text-gray-600">Display your phone number on your profile</p>
-                    </div>
-                    <Switch
-                      id="show-phone"
-                      checked={privacy.showPhone}
-                      onCheckedChange={(checked) => setPrivacy({...privacy, showPhone: checked})}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="allow-messages">Allow Messages</Label>
-                      <p className="text-sm text-gray-600">Let providers contact you directly</p>
-                    </div>
-                    <Switch
-                      id="allow-messages"
-                      checked={privacy.allowMessages}
-                      onCheckedChange={(checked) => setPrivacy({...privacy, allowMessages: checked})}
-                    />
-                  </div>
-
-                  <Button onClick={handleSavePrivacy} className="w-full">
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Privacy Settings
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Globe className="h-5 w-5 mr-2" />
-                    Data & Sharing
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label htmlFor="data-sharing">Data Sharing</Label>
-                      <p className="text-sm text-gray-600">Share anonymized data to improve our services</p>
-                    </div>
-                    <Switch
-                      id="data-sharing"
-                      checked={privacy.dataSharing}
-                      onCheckedChange={(checked) => setPrivacy({...privacy, dataSharing: checked})}
-                    />
-                  </div>
-
-                  <div className="pt-4 border-t">
-                    <h3 className="font-medium mb-2">Data Export</h3>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Download a copy of all your data from our platform.
-                    </p>
-                    <Button variant="outline" className="w-full">
-                      Request Data Export
-                    </Button>
-                  </div>
-
-                  <div className="pt-4 border-t">
-                    <h3 className="font-medium mb-2 text-red-600">Danger Zone</h3>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Permanently delete your account and all associated data.
-                    </p>
-                    <Button variant="destructive" className="w-full">
-                      Delete Account
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
 
           <TabsContent value="security" className="mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -561,7 +236,7 @@ export default function AccountSettings() {
 
                   <div>
                     <Label>Username</Label>
-                    <p className="text-sm text-gray-600 mt-1">@{user?.username}</p>
+                    <p className="text-sm text-gray-600 mt-1">@{user?.username || user?.email?.split('@')[0] || 'user'}</p>
                   </div>
 
                   <div>
@@ -627,10 +302,13 @@ export default function AccountSettings() {
                         </p>
                       </div>
 
-                      {subscription.plans?.price && (
+                      {typeof subscription.plans?.price_cents === 'number' && (
                         <div>
                           <Label>Monthly Cost</Label>
-                          <p className="text-sm text-gray-600 mt-1">£{subscription.plans.price}</p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            £{(subscription.plans.price_cents / 100).toFixed(2)}
+                            {subscription.plans.billing_interval ? ` / ${subscription.plans.billing_interval}` : ''}
+                          </p>
                         </div>
                       )}
 

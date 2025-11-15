@@ -44,7 +44,6 @@ export default function Plans() {
 
     setPurchasing(true);
     try {
-      // Check existing active
       const { data: existing, error: existingErr } = await supabase
         .from('buyer_subscriptions')
         .select('id, status')
@@ -56,14 +55,32 @@ export default function Plans() {
         toast.success('You already have an active Pro subscription');
         return;
       }
-      const { error: insertErr } = await supabase
-        .from('buyer_subscriptions')
-        .insert({ buyer_id: user.id, plan_id: plan.id, status: 'active' });
-      if (insertErr) throw insertErr;
-      toast.success('Pro activated! Enjoy your benefits.');
+
+      const response = await fetch('/.netlify/functions/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'buyer_pro',
+          userId: user.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || 'Failed to start payment');
+      }
+
+      const data = await response.json();
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('Missing Stripe checkout URL');
+      }
     } catch (e: any) {
       console.error(e);
-      toast.error(e.message || 'Failed to activate Pro');
+      toast.error(e.message || 'Failed to start payment');
     } finally {
       setPurchasing(false);
     }

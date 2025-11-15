@@ -113,37 +113,32 @@ export default function SellerDashboard() {
     if (!user?.id) { toast.error('You must be logged in'); return; }
     try {
       setSellerPlusLoading(true);
-      // Prevent duplicate active
-      const { data: existing, error: existErr } = await (supabase as any)
-        .from('seller_subscriptions')
-        .select('id, status, ends_at')
-        .eq('seller_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle();
-      if (existErr) throw existErr;
-      if (existing && (!existing.ends_at || new Date(existing.ends_at) > new Date())) {
-        toast.success('Seller Plus already active');
-        setSellerPlusActive(true);
-        setSellerPlusEndsAt(existing.ends_at || null);
-        return;
+      const response = await fetch('/.netlify/functions/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'seller_plus',
+          planSlug: 'seller-plus',
+          userId: user.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || 'Failed to start Seller Plus payment');
       }
-      // Create subscription for 30 days
-      const endsAt = new Date();
-      endsAt.setDate(endsAt.getDate() + 30);
-      const { error: insErr } = await (supabase as any)
-        .from('seller_subscriptions')
-        .insert({ seller_id: user.id, status: 'active', plan_slug: 'seller-plus', ends_at: endsAt.toISOString() });
-      if (insErr) throw insErr;
-      // Call RPC to sync services featured flags
-      try {
-        await (supabase as any).rpc('mark_services_featured_for_seller', { _seller: user.id });
-      } catch {}
-      setSellerPlusActive(true);
-      setSellerPlusEndsAt(endsAt.toISOString());
-      toast.success('Seller Plus activated! Your services are now featured.');
+
+      const data = await response.json();
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('Missing Stripe checkout URL');
+      }
     } catch (e: any) {
       console.error('activateSellerPlus error', e);
-      toast.error(e?.message || 'Failed to activate Seller Plus');
+      toast.error(e?.message || 'Failed to start Seller Plus payment');
     } finally {
       setSellerPlusLoading(false);
     }

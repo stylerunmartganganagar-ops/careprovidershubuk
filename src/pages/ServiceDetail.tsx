@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
-import { MobileBottomNavbar } from '../components/MobileBottomNavbar';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -1070,7 +1069,6 @@ export default function ServiceDetail() {
       </Dialog>
 
       <Footer />
-      <MobileBottomNavbar />
     </div>
   );
 }

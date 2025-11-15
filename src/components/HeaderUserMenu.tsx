@@ -16,7 +16,6 @@ import {
   Bell,
   MessageSquare,
   BookOpen,
-  Heart,
   User,
   Package,
   DollarSign,
@@ -137,9 +136,6 @@ export function HeaderUserMenu() {
         </Button>
         <Button variant="ghost" size="icon" onClick={() => setHelpOpen(true)}>
           <BookOpen className="h-5 w-5" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => navigate('/favorites')}>
-          <Heart className="h-5 w-5" />
         </Button>
 
         <DropdownMenu>

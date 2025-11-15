@@ -145,79 +145,34 @@ export default function TokenPurchasePage() {
       const plan = tokenPlans.find((p) => p.slug === planSlug);
       if (!plan) throw new Error('Plan not found');
 
-      // Special case: Seller Plus subscription
-      if (plan.slug === 'seller-plus') {
-        // Prevent duplicate
-        const { data: existing, error: existErr } = await supabase
-          .from('seller_subscriptions')
-          .select('id, status, ends_at')
-          .eq('seller_id', user.id)
-          .eq('status', 'active')
-          .maybeSingle();
-        if (existErr) throw existErr;
-        if (existing && (!existing.ends_at || new Date(existing.ends_at) > new Date())) {
-          toast.success('Seller Plus already active');
-          return;
-        }
+      const type = plan.slug === 'seller-plus' ? 'seller_plus' : 'tokens';
 
-        const endsAt = new Date();
-        endsAt.setDate(endsAt.getDate() + 30);
-        const { error: insErr } = await supabase
-          .from('seller_subscriptions')
-          .insert({ seller_id: user.id, status: 'active', plan_slug: 'seller-plus', ends_at: endsAt.toISOString() });
-        if (insErr) throw insErr;
-        try { await (supabase as any).rpc('mark_services_featured_for_seller', { _seller: user.id }); } catch {}
-        toast.success('Seller Plus activated! Your services are now featured.');
-        return;
+      const response = await fetch('/.netlify/functions/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type,
+          planSlug: plan.slug,
+          userId: user.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || 'Failed to start purchase');
       }
 
-      // Simulate a short processing delay (gateway-less flow)
-      await new Promise((res) => setTimeout(res, 900));
-
-      // Update user's token balance
-      const { data: updatedUser, error: updateErr } = await supabase
-        .from('users')
-        .update({ bid_tokens: tokenBalance + plan.tokens })
-        .eq('id', user.id)
-        .select('bid_tokens')
-        .single();
-      if (updateErr) throw updateErr;
-
-      // Record the purchase for audit/history
-      const amount = plan.tokens * TOKEN_PRICE_GBP;
-      const { data: purchaseRow, error: insertErr } = await supabase
-        .from('token_purchases')
-        .insert({
-          seller_id: user.id,
-          plan_id: plan.id,
-          tokens: plan.tokens,
-          amount: amount,
-          currency: 'GBP',
-          status: 'completed',
-        })
-        .select('id, created_at')
-        .single();
-      if (insertErr) throw insertErr;
-
-      // Update local state
-      setTokenBalance(updatedUser?.bid_tokens ?? tokenBalance + plan.tokens);
-      setPurchases((prev) => [
-        {
-          id: purchaseRow?.id || Date.now().toString(),
-          tokens: plan.tokens,
-          amount: amount,
-          currency: 'GBP',
-          status: 'completed',
-          created_at: purchaseRow?.created_at || new Date().toISOString(),
-          plan: { name: plan.name },
-        },
-        ...prev,
-      ]);
-
-      toast.success(`Successfully purchased ${plan.tokens} tokens!`);
+      const data = await response.json();
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('Missing Stripe checkout URL');
+      }
     } catch (error: any) {
       console.error('Purchase error:', error);
-      toast.error(error.message || 'Failed to process purchase');
+      toast.error(error.message || 'Failed to start purchase');
     } finally {
       setPurchasingPlan(null);
     }

@@ -4,7 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
-import { AuthProvider } from './lib/auth.tsx';
+import { AuthProvider, useAuth } from './lib/auth.tsx';
 import { SearchProvider } from './contexts/SearchContext';
 import { ProjectSearchProvider } from './contexts/ProjectSearchContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -38,7 +38,6 @@ import BidProject from "./pages/BidProject";
 import MyProjectsPage from "./pages/MyProjectsPage";
 import AccountSettings from "./pages/AccountSettings";
 import PaymentMethods from "./pages/PaymentMethods";
-import Favorites from "./pages/Favorites";
 import Dashboard from "./pages/Dashboard";
 import SellerProfile from "./pages/SellerProfile";
 import MessagesPage from "./pages/Messages";
@@ -61,23 +60,22 @@ import AdminKYC from "./pages/AdminKYC";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import CodeOfConductPage from "./pages/CodeOfConductPage";
 import InfoPage from "./pages/InfoPage";
+import { MobileBottomNavbar } from "./components/MobileBottomNavbar";
+import { SellerMobileBottomNavbar } from "./components/SellerMobileBottomNavbar";
 import { supabase } from './lib/supabase';
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <AnalyticsInjector />
-        <Toaster />
-        <Sonner />
-        <ScrollToTopButton />
-        <BrowserRouter>
-          <ScrollToTop />
-          <SearchProvider>
-            <ProjectSearchProvider>
-              <Routes>
+const AppRoutes = () => {
+  const { user } = useAuth();
+
+  return (
+    <BrowserRouter>
+      <ScrollToTop />
+      <SearchProvider>
+        <ProjectSearchProvider>
+          <>
+            <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/auth/verification-success" element={<VerificationSuccess />} />
@@ -107,7 +105,6 @@ const App = () => (
                 <Route path="/user-profile" element={<UserProfile />} />
                 <Route path="/account-settings" element={<AccountSettings />} />
                 <Route path="/payment-methods" element={<PaymentMethods />} />
-                <Route path="/favorites" element={<Favorites />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                 <Route path="/code-of-conduct" element={<CodeOfConductPage />} />
                 <Route path="/info/:slug" element={<InfoPage />} />
@@ -221,9 +218,25 @@ const App = () => (
                 />
                 <Route path="*" element={<NotFound />} />
               </Routes>
-            </ProjectSearchProvider>
-          </SearchProvider>
-        </BrowserRouter>
+            {user && (
+              user.role === 'provider' ? <SellerMobileBottomNavbar /> : <MobileBottomNavbar />
+            )}
+          </>
+        </ProjectSearchProvider>
+      </SearchProvider>
+    </BrowserRouter>
+  );
+};
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <TooltipProvider>
+        <AnalyticsInjector />
+        <Toaster />
+        <Sonner />
+        <ScrollToTopButton />
+        <AppRoutes />
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
