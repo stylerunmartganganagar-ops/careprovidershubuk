@@ -18,19 +18,21 @@ import {
   Clock,
   Eye
 } from 'lucide-react';
-import { useBuyerProjects } from '../hooks/useProjects';
+import { useBuyerProjects, useUpdateProjectStatus } from '../hooks/useProjects';
 import { Crown } from 'lucide-react';
 import { useIsPro } from '../hooks/usePro';
 
 export default function MyProjectsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { projects, loading, error } = useBuyerProjects(user?.id);
+  const { projects, loading, error, refetch } = useBuyerProjects(user?.id);
   const { isPro } = useIsPro(user?.id);
+  const { updateProjectStatus, loading: updatingStatus } = useUpdateProjectStatus();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [closingProjectId, setClosingProjectId] = useState<string | null>(null);
 
   // Filter and sort projects
   const filteredProjects = projects
@@ -73,6 +75,19 @@ export default function MyProjectsPage() {
       case 'medium': return 'bg-yellow-100 text-yellow-800';
       case 'low': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleMarkAsClosed = async (projectId: string) => {
+    try {
+      setClosingProjectId(projectId);
+      await updateProjectStatus(projectId, 'completed');
+      await refetch();
+    } catch (err) {
+      console.error('Failed to mark project as closed:', err);
+      alert('Failed to mark project as closed. Please try again.');
+    } finally {
+      setClosingProjectId(null);
     }
   };
 
@@ -281,6 +296,17 @@ export default function MyProjectsPage() {
                       <Eye className="h-3 w-3 mr-1" />
                       View Details
                     </Button>
+                    {(project.status === 'open' || project.status === 'in_progress') && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="flex-1"
+                        disabled={updatingStatus || closingProjectId === project.id}
+                        onClick={() => handleMarkAsClosed(project.id)}
+                      >
+                        {closingProjectId === project.id ? 'Closing...' : 'Mark as Closed'}
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>

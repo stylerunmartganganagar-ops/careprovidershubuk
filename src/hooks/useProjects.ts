@@ -226,6 +226,36 @@ export function useBuyerProjects(userId: string | undefined) {
   }};
 }
 
+export function useUpdateProjectStatus() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const updateProjectStatus = async (projectId: string, status: Project['status']) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data, error } = await (supabase as any)
+        .from('projects')
+        .update({ status })
+        .eq('id', projectId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as Project;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update project status';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { updateProjectStatus, loading, error };
+}
+
 export function useProjectBids(projectId: string | undefined) {
   const [bids, setBids] = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);

@@ -955,23 +955,35 @@ export default function MessagesPage() {
 
     // Validate milestone amounts and due dates
     let totalMilestoneAmount = 0;
-    for (const milestone of validMilestones) {
+    for (let i = 0; i < validMilestones.length; i++) {
+      const milestone = validMilestones[i];
       const amount = parseFloat(milestone.amount);
       if (isNaN(amount) || amount <= 0) {
-        alert('Please enter valid amounts for all milestones');
+        alert(`Please enter a valid amount for milestone ${i + 1}`);
         return;
       }
       totalMilestoneAmount += amount;
 
+      if (!milestone.due_date) {
+        alert(`Please select a due date for milestone ${i + 1}`);
+        return;
+      }
+
       const dueDate = new Date(milestone.due_date);
+      if (Number.isNaN(dueDate.getTime())) {
+        alert(`Please enter a valid due date for milestone ${i + 1}`);
+        return;
+      }
+
       if (dueDate <= new Date()) {
         alert('All milestone due dates must be in the future');
         return;
       }
     }
 
-    if (totalMilestoneAmount > milestoneOrderTotalAmount) {
-      alert(`Total milestone amounts (£${totalMilestoneAmount}) cannot exceed order total (£${milestoneOrderTotalAmount})`);
+    const totalDifference = Math.abs(totalMilestoneAmount - milestoneOrderTotalAmount);
+    if (totalDifference > 0.01) {
+      alert(`Total milestone amounts (£${totalMilestoneAmount.toFixed(2)}) must equal the order total (£${milestoneOrderTotalAmount.toFixed(2)})`);
       return;
     }
 
@@ -1089,9 +1101,74 @@ export default function MessagesPage() {
     );
   }
 
-  function acceptIndividualMilestone(milestone: any, message: Message): void {
-    throw new Error('Function not implemented.');
-  }
+  const acceptIndividualMilestone = async (milestone: any, message: Message) => {
+    if (!user?.id) return;
+    if (message.receiver_id !== user.id) {
+      toast.error('Only the client can accept milestones');
+      return;
+    }
+
+    try {
+      const milestoneOrderId = message.milestone_order_id;
+
+      const { error: updateError } = await supabase
+        .from('milestones')
+        .update({
+          status: 'in_progress',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', milestone.id)
+        .eq('buyer_id', user.id)
+        .eq('status', 'pending');
+
+      if (updateError) throw updateError;
+
+      if (milestoneOrderId) {
+        await supabase
+          .from('milestone_orders')
+          .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+          .eq('id', milestoneOrderId)
+          .eq('buyer_id', user.id);
+      }
+
+      const acceptanceMessage: MessageInsert = {
+        sender_id: user.id,
+        receiver_id: message.sender_id,
+        content: `Milestone "${milestone.title}" accepted ✅`,
+        message_type: 'milestone_created',
+        milestone_order_id: milestoneOrderId || undefined,
+        order_tag: 'milestone',
+        metadata: {
+          milestone_id: milestone.id,
+          title: milestone.title,
+          amount: milestone.amount,
+          milestone_order_id: milestoneOrderId
+        }
+      };
+
+      await supabase.from('messages').insert(acceptanceMessage);
+
+      await loadMessageMilestones(milestoneOrderId!, message.id, true);
+
+      setMessageMilestones(prev => ({
+        ...prev,
+        [message.id]: (prev[message.id] || []).map(m =>
+          m.id === milestone.id ? { ...m, status: 'in_progress' } : m
+        )
+      }));
+
+      if (acceptedMilestoneOrderId && acceptedMilestoneOrderId === milestoneOrderId) {
+        setMilestones(prev => prev.map(m =>
+          m.id === milestone.id ? { ...m, status: 'in_progress' } : m
+        ));
+      }
+
+      toast.success('Milestone accepted successfully');
+    } catch (error) {
+      console.error('Failed to accept milestone', error);
+      toast.error('Failed to accept milestone');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 overflow-hidden">
@@ -1265,14 +1342,14 @@ export default function MessagesPage() {
                                   ) : messageMilestones[message.id]?.length > 0 ? (
                                     messageMilestones[message.id].map((milestone: any, index: number) => (
                                       <div key={milestone.id} className="p-3 bg-gray-50 rounded-lg border">
-                                        <div className="flex items-start justify-between">
-                                          <div className="flex-1">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                          <div className="flex-1 min-w-0">
                                             <div className="font-medium text-sm">{milestone.title}</div>
                                             <div className="text-xs text-gray-600 mt-1">
                                               £{formatAmount(milestone.amount)} • Due: {new Date(milestone.due_date).toLocaleDateString()}
                                             </div>
                                             {milestone.description && (
-                                              <div className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">
+                                              <div className="text-xs text-gray-500 mt-1 whitespace-pre-wrap break-words">
                                                 {milestone.description}
                                               </div>
                                             )}
@@ -1284,14 +1361,16 @@ export default function MessagesPage() {
                                             </Badge>
                                           </div>
                                           {message.receiver_id === user?.id && milestone.status === 'pending' && (
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              onClick={() => acceptIndividualMilestone(milestone, message)}
-                                              className="ml-2 text-xs"
-                                            >
-                                              Accept
-                                            </Button>
+                                            <div className="flex-shrink-0 w-full sm:w-auto">
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => acceptIndividualMilestone(milestone, message)}
+                                                className="text-xs w-full sm:w-auto"
+                                              >
+                                                Accept
+                                              </Button>
+                                            </div>
                                           )}
                                         </div>
                                       </div>

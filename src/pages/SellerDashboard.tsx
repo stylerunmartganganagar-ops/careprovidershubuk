@@ -253,6 +253,14 @@ export default function SellerDashboard() {
         console.log('💰 SELLER DASHBOARD: Number of completed orders:', earnings?.length);
 
         const totalEarnings = (earnings || []).reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
+
+        const { data: milestoneEarnings } = await supabase
+          .from('milestone_orders')
+          .select('total_amount, status')
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        const completedMilestoneEarnings = (milestoneEarnings || []).reduce((sum: number, order: any) => sum + parseFloat(order.total_amount?.toString() || '0'), 0) || 0;
         console.log('💰 SELLER DASHBOARD: CALCULATED totalEarnings:', totalEarnings);
         console.log('💰 SELLER DASHBOARD: Individual order prices:', (earnings || []).map((o: any) => o.price));
 
@@ -280,10 +288,22 @@ export default function SellerDashboard() {
           .from('orders')
           .select('*', { count: 'exact', head: true })
           .eq('provider_id', user.id)
-          .eq('status', 'in_progress');
+          .in('status', ['pending', 'in_progress']);
 
         const { count: completedOrders } = await supabase
           .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .eq('status', 'completed');
+
+        const { count: activeMilestoneOrders } = await supabase
+          .from('milestone_orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('provider_id', user.id)
+          .in('status', ['pending', 'in_progress']);
+
+        const { count: completedMilestoneOrders } = await supabase
+          .from('milestone_orders')
           .select('*', { count: 'exact', head: true })
           .eq('provider_id', user.id)
           .eq('status', 'completed');
@@ -300,8 +320,8 @@ export default function SellerDashboard() {
             spent: totalSpent
           },
           orders: {
-            active: activeOrders || 0,
-            completed: completedOrders || 0,
+            active: (activeOrders || 0) + (activeMilestoneOrders || 0),
+            completed: (completedOrders || 0) + (completedMilestoneOrders || 0),
             cancelled: 0, // Could be implemented
             inQueue: 0 // Could be implemented
           },

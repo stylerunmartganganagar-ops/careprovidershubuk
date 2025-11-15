@@ -227,18 +227,38 @@ export default function DashboardPage() {
 
         if (buyerOrdersError) throw buyerOrdersError;
 
-        const activeOrdersCount = (buyerOrdersData || []).filter((order: any) => order.status && order.status !== 'completed').length;
-        const completedOrdersCount = (buyerOrdersData || []).filter((order: any) => order.status === 'completed').length;
+        const normalActiveOrdersCount = (buyerOrdersData || []).filter((order: any) => order.status && order.status !== 'completed' && order.status !== 'cancelled').length;
+        const normalCompletedOrdersCount = (buyerOrdersData || []).filter((order: any) => order.status === 'completed').length;
+
+        console.log('📦 Fetching buyer milestone order summary...');
+        const { data: buyerMilestoneOrders, error: buyerMilestoneError } = await supabase
+          .from('milestone_orders')
+          .select('status, total_amount')
+          .eq('buyer_id', user.id);
+
+        if (buyerMilestoneError) throw buyerMilestoneError;
+
+        const activeMilestoneOrdersCount = (buyerMilestoneOrders || []).filter((order: any) => order.status && order.status !== 'completed' && order.status !== 'cancelled').length;
+        const completedMilestoneOrdersCount = (buyerMilestoneOrders || []).filter((order: any) => order.status === 'completed').length;
 
         console.log('📊 Buyer orders summary:', {
-          total: buyerOrdersData?.length,
-          activeOrdersCount,
-          completedOrdersCount
+          total: (buyerOrdersData?.length || 0) + (buyerMilestoneOrders?.length || 0),
+          activeOrdersCount: normalActiveOrdersCount + activeMilestoneOrdersCount,
+          completedOrdersCount: normalCompletedOrdersCount + completedMilestoneOrdersCount
         });
+
+        const milestoneTotalSpent = (buyerMilestoneOrders || [])
+          .filter((order: any) => order.status === 'completed')
+          .reduce((sum: number, order: any) => sum + parseFloat(order.total_amount?.toString() || '0'), 0) || 0;
 
         const totalSpent = (buyerOrdersData || [])
           .filter((order: any) => order.status === 'completed')
           .reduce((sum: number, order: any) => sum + parseFloat(order.price?.toString() || '0'), 0) || 0;
+
+        const combinedTotalSpent = totalSpent + milestoneTotalSpent;
+
+        const activeOrdersCount = normalActiveOrdersCount + activeMilestoneOrdersCount;
+        const completedOrdersCount = normalCompletedOrdersCount + completedMilestoneOrdersCount;
 
         console.log('💰 CALCULATED totalSpent:', totalSpent);
         console.log('💰 Individual order prices:', (buyerOrdersData || []).filter((o: any) => o.status === 'completed').map((o: any) => o.price));
@@ -280,7 +300,7 @@ export default function DashboardPage() {
           orders: {
             active: activeOrdersCount,
             completed: completedCount,
-            totalSpent,
+            totalSpent: combinedTotalSpent,
             saved: Math.floor(totalSpent * 0.1) // Estimate 10% savings
           },
           profile: {
