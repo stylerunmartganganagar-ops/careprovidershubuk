@@ -569,6 +569,82 @@ export default function AdminPanel() {
     }
   }, []);
 
+  const loadTokenPurchases = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('token_purchases')
+        .select(`
+          id,
+          seller_id,
+          tokens,
+          amount,
+          currency,
+          status,
+          created_at,
+          plan:token_plans(name)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100)
+        .returns<(TokenPurchaseRecord & { plan: { name: string | null } })[]>();
+      if (error) throw error;
+
+      const sellerIds = Array.from(new Set((data || []).map((row) => row.seller_id).filter(Boolean)));
+      const sellerLookup = new Map<string, { name: string | null; email: string | null }>();
+      if (sellerIds.length > 0) {
+        const { data: sellerRows } = await supabase
+          .from('users')
+          .select('id, name, email')
+          .in('id', sellerIds);
+        (sellerRows || []).forEach((row) => {
+          sellerLookup.set(row.id, { name: row.name ?? null, email: row.email ?? null });
+        });
+      }
+
+      const rows: TokenPurchaseListItem[] = (data || []).map((purchase) => {
+        const seller = sellerLookup.get(purchase.seller_id) ?? { name: null, email: null };
+        return {
+          id: purchase.id,
+          sellerId: purchase.seller_id,
+          sellerName: seller.name ?? 'Unknown Seller',
+          sellerEmail: seller.email ?? '	—',
+          planName: purchase.plan?.name ?? 'Unknown Plan',
+          tokens: purchase.tokens,
+          amount: Number(purchase.amount ?? 0),
+          currency: purchase.currency ?? 'GBP',
+          status: purchase.status ?? 'pending',
+          createdAt: purchase.created_at,
+        };
+      });
+
+      if (isMountedRef.current) setTokenPurchasesList(rows);
+    } catch (e) {
+      console.error('Error loading token purchases', e);
+    }
+  }, []);
+
+  const loadBuyerProSubscriptions = useCallback(async () => {
+    try {
+      const { data: subs, error } = await supabase.rpc('admin_list_buyer_pro_subs');
+      if (error) throw error;
+
+      const rows: BuyerProSubscriptionListItem[] = ((subs as AdminBuyerProSubRow[] | null) || []).map((sub) => ({
+        id: sub.id,
+        buyerId: sub.buyer_id,
+        buyerName: sub.buyer_name ?? 'Unknown Buyer',
+        buyerEmail: sub.buyer_email ?? '	—',
+        planName: sub.plan_name ?? 'Buyer Pro',
+        price: sub.price ?? null,
+        interval: sub.plan_interval ?? null,
+        status: sub.status ?? 'pending',
+        createdAt: sub.created_at,
+      }));
+
+      if (isMountedRef.current) setBuyerProSubscriptions(rows);
+    } catch (e) {
+      console.error('Error loading buyer pro subscriptions', e);
+    }
+  }, []);
+
   // Sellers management
   const [sellers, setSellers] = useState<SellerListItem[]>([]);
 

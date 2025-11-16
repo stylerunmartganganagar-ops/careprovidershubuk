@@ -2,6 +2,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Clock, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import regulatoryImg from "@/assets/category-regulatory.jpg";
+import softwareImg from "@/assets/category-software.jpg";
+import professionalImg from "@/assets/category-professional.jpg";
 
 const articles = [
   {
@@ -10,6 +13,7 @@ const articles = [
     readTime: "12 min read",
     excerpt: "Everything you need to know about registering your care service with the CQC in 2025. Step-by-step guidance and expert tips.",
     author: "Sarah Jenkins",
+    image: regulatoryImg,
   },
   {
     title: "Choosing the Right Care Management Software",
@@ -17,6 +21,7 @@ const articles = [
     readTime: "8 min read",
     excerpt: "A comprehensive comparison of leading care management systems. Find the perfect software solution for your care business.",
     author: "Michael Chen",
+    image: softwareImg,
   },
   {
     title: "Sponsor Visa Requirements for Care Homes Explained",
@@ -24,6 +29,7 @@ const articles = [
     readTime: "10 min read",
     excerpt: "Navigate the complex world of sponsor visas for care workers. Latest updates and compliance requirements for 2025.",
     author: "David Patel",
+    image: professionalImg,
   },
 ];
 
@@ -46,7 +52,14 @@ export const Insights = () => {
               key={index}
               className="overflow-hidden hover:shadow-xl transition-all duration-300 group cursor-pointer"
             >
-              <div className="h-48 bg-gradient-to-br from-primary to-primary/60" />
+              <div className="h-48 relative overflow-hidden">
+                <img
+                  src={article.image}
+                  alt={article.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/20 to-transparent" />
+              </div>
               
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-3">

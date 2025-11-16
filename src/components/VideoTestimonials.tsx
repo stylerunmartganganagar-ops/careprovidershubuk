@@ -1,7 +1,12 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Play, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import regulatoryImg from "@/assets/category-regulatory.jpg";
+import softwareImg from "@/assets/category-software.jpg";
+import professionalImg from "@/assets/category-professional.jpg";
+import trainingImg from "@/assets/category-training.jpg";
+import suppliesImg from "@/assets/category-supplies.jpg";
 
 const testimonials = [
   {
@@ -11,6 +16,7 @@ const testimonials = [
     service: "CQC Registration",
     quote: "Found our consultant in days, not weeks!",
     videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    image: regulatoryImg,
     rating: 5,
   },
   {
@@ -20,6 +26,7 @@ const testimonials = [
     service: "Care Software",
     quote: "Transformed how we operate completely!",
     videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    image: softwareImg,
     rating: 5,
   },
   {
@@ -29,6 +36,7 @@ const testimonials = [
     service: "Consulting",
     quote: "Professional service, incredible results!",
     videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    image: professionalImg,
     rating: 5,
   },
   {
@@ -38,6 +46,7 @@ const testimonials = [
     service: "Training",
     quote: "Best training provider we've worked with!",
     videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    image: trainingImg,
     rating: 5,
   },
   {
@@ -47,6 +56,7 @@ const testimonials = [
     service: "Compliance",
     quote: "Made CQC compliance stress-free!",
     videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    image: suppliesImg,
     rating: 5,
   },
 ];
@@ -71,14 +81,13 @@ export const VideoTestimonials = () => {
                 key={index}
                 className="w-[280px] flex-shrink-0 overflow-hidden hover:shadow-xl transition-shadow duration-300"
               >
-                <div className="relative aspect-[9/16] bg-muted group cursor-pointer">
+                <div className="relative aspect-[9/16] bg-muted group cursor-pointer overflow-hidden">
+                  <img
+                    src={testimonial.image}
+                    alt={testimonial.service}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                  
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-16 h-16 rounded-full bg-primary/90 flex items-center justify-center group-hover:scale-110 transition-transform">
-                      <Play className="h-8 w-8 text-primary-foreground ml-1" fill="currentColor" />
-                    </div>
-                  </div>
 
                   <div className="absolute bottom-0 left-0 right-0 p-4">
                     <div className="flex items-center space-x-3 mb-2">

@@ -60,6 +60,7 @@ import AdminKYC from "./pages/AdminKYC";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import CodeOfConductPage from "./pages/CodeOfConductPage";
 import InfoPage from "./pages/InfoPage";
+import CategoryDetailPage from "./pages/CategoryDetailPage";
 import { MobileBottomNavbar } from "./components/MobileBottomNavbar";
 import { SellerMobileBottomNavbar } from "./components/SellerMobileBottomNavbar";
 import { supabase } from './lib/supabase';
@@ -99,6 +100,7 @@ const AppRoutes = () => {
                 <Route path="/payment-history" element={<PaymentHistory />} />
                 <Route path="/services/just-for-you" element={<AllServicesPage />} />
                 <Route path="/services/featured" element={<AllServicesPage />} />
+                <Route path="/categories/:categoryId" element={<CategoryDetailPage />} />
                 <Route path="/plans" element={<Plans />} />
                 <Route path="/services/searched" element={<AllServicesPage />} />
                 <Route path="/recent-activity" element={<RecentActivityPage />} />

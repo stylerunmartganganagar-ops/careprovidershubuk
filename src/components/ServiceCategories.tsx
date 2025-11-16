@@ -22,12 +22,16 @@ import softwareImg from "@/assets/category-software.jpg";
 import trainingImg from "@/assets/category-training.jpg";
 import professionalImg from "@/assets/category-professional.jpg";
 import suppliesImg from "@/assets/category-supplies.jpg";
+import ctaCareProvidersImg from "@/assets/cta-care-providers.jpg";
+import ctaProfessionalsImg from "@/assets/cta-professionals.jpg";
+import heroBackgroundImg from "@/assets/hero-background.jpg";
 import { useCategories } from "@/hooks/useCategories";
+import { Link } from "react-router-dom";
 
 export const ServiceCategories = () => {
   const { categories, loading, error } = useCategories();
 
-  // Map category names to icons and images
+  // Map category names to icons and provide a palette of unique images
   const getCategoryIcon = (categoryName: string) => {
     const iconMap: Record<string, any> = {
       'Tender & Bid Writing Services': FileText,
@@ -47,24 +51,17 @@ export const ServiceCategories = () => {
     return iconMap[categoryName] || Building;
   };
 
-  const getCategoryImage = (categoryName: string) => {
-    const imageMap: Record<string, string> = {
-      'Tender & Bid Writing Services': consultingImg,
-      'Legal Consultancy': regulatoryImg,
-      'CQC (England) / CI (Scotland) / CIW (Wales)': regulatoryImg,
-      'Ofsted Registration': regulatoryImg,
-      'Non-Regulated Care': consultingImg,
-      'Care Client Management': consultingImg,
-      'Care Audits / Mock Inspections': consultingImg,
-      'Business Operations Consultancy': professionalImg,
-      'Business Finance Consultancy': professionalImg,
-      'Training Providers': trainingImg,
-      'Equipment / Supplies': suppliesImg,
-      'Employment': professionalImg,
-      'Business Buying/Selling': professionalImg,
-    };
-    return imageMap[categoryName] || consultingImg;
-  };
+  const categoryImages = [
+    regulatoryImg,
+    consultingImg,
+    softwareImg,
+    trainingImg,
+    professionalImg,
+    suppliesImg,
+    ctaCareProvidersImg,
+    ctaProfessionalsImg,
+    heroBackgroundImg,
+  ];
 
   if (loading) {
     return (
@@ -103,9 +100,9 @@ export const ServiceCategories = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {categories.map((category) => {
+          {categories.map((category, index) => {
             const Icon = getCategoryIcon(category.name);
-            const image = getCategoryImage(category.name);
+            const image = categoryImages[index % categoryImages.length];
             return (
               <Card
                 key={category.id}
@@ -147,9 +144,15 @@ export const ServiceCategories = () => {
                       </li>
                     )}
                   </ul>
-                  
-                  <Button variant="outline" className="w-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                    Explore
+
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="w-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors"
+                  >
+                    <Link to={`/categories/${category.id}`}>
+                      Explore
+                    </Link>
                   </Button>
                 </CardContent>
               </Card>
