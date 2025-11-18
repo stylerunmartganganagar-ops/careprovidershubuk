@@ -880,10 +880,6 @@ export default function ServiceDetail() {
                     <MessageSquare className="h-5 w-5 mr-2" />
                     Contact Seller
                   </Button>
-                  <Button variant="outline" className="w-full" size="lg">
-                    <Heart className="h-4 w-4 mr-2" />
-                    Save to Favorites
-                  </Button>
                 </CardContent>
               </Card>
 

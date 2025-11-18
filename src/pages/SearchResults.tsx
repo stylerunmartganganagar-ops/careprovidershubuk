@@ -14,7 +14,7 @@ import {
   ArrowLeft,
   Filter
 } from 'lucide-react';
-import { dailyShuffle, useServices, useAvailableProjects } from '../hooks/useProjects';
+import { dailyShuffle, useServices, useAvailableProjects, useFeaturedProjects, useSearchBasedProjects } from '../hooks/useProjects';
 import { useAuth } from '../lib/auth.tsx';
 import { Crown } from 'lucide-react';
 import { useIsPro } from '../hooks/usePro';
@@ -265,10 +265,20 @@ export default function SearchResults() {
   const isSeller = user?.role === 'provider';
   const isBuyer = user?.role === 'client' || !user?.role;
 
+  const FEATURED_PROJECTS_LABEL = 'Featured Projects';
+  const PROJECTS_TO_BID_FOR_LABEL = 'Projects to Bid For';
+  const BASED_ON_SEARCHES_LABEL = 'Based on Your Searches';
+
+  const isFeaturedProjectsView = isSeller && service === FEATURED_PROJECTS_LABEL;
+  const isProjectsToBidForView = isSeller && service === PROJECTS_TO_BID_FOR_LABEL;
+  const isBasedOnSearchesView = isSeller && service === BASED_ON_SEARCHES_LABEL;
+
   // Data hooks based on user role
   const { services, loading: servicesLoading } = useServices();
   const shuffledServices = useMemo(() => dailyShuffle(services), [services]);
   const { projects: availableProjects, loading: projectsLoading } = useAvailableProjects(user?.id);
+  const { projects: featuredProjects, loading: featuredProjectsLoading } = useFeaturedProjects(user?.id);
+  const { projects: searchBasedProjects, loading: searchBasedProjectsLoading } = useSearchBasedProjects(user?.id);
 
   const isPersonalizedFilter = filterParam === 'personalized';
   const isSearchesFilter = filterParam === 'searches';
@@ -289,7 +299,7 @@ export default function SearchResults() {
 
   const disableTopRatedThreshold = filterParam === 'featured' || isPersonalizedFilter || isSearchesFilter;
 
-  const loading = servicesLoading || projectsLoading;
+  const loading = servicesLoading || projectsLoading || featuredProjectsLoading || searchBasedProjectsLoading;
 
   const [activeFilter, setActiveFilter] = useState<FilterOption>(() => filterParam === 'featured' ? 'rating-high-low' : 'top-rated');
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
@@ -336,9 +346,21 @@ export default function SearchResults() {
     return serviceMatch && locationMatchFromQuery && locationMatchFilter && featuredMatch && curatedMatch;
   });
 
-  const filteredProjects = availableProjects.filter(project => {
+  const projectSource = isSeller
+    ? isFeaturedProjectsView
+      ? featuredProjects
+      : isProjectsToBidForView
+        ? availableProjects
+        : isBasedOnSearchesView
+          ? searchBasedProjects
+          : availableProjects
+    : [];
+
+  const filteredProjects = projectSource.filter(project => {
+    const ignoreTextMatch = isFeaturedProjectsView || isProjectsToBidForView || isBasedOnSearchesView;
+
     // Match project query against project title, description, or category
-    const projectMatch = !service || (
+    const projectMatch = ignoreTextMatch || !service ? true : (
       project.title.toLowerCase().includes(serviceLower) ||
       project.description.toLowerCase().includes(serviceLower) ||
       project.category.toLowerCase().includes(serviceLower) ||
@@ -402,13 +424,21 @@ export default function SearchResults() {
   }, [filteredProjects, activeFilter]);
 
   const baseResultsType = isSeller ? 'projects' : 'services';
-  const resultsType = filterParam === 'featured'
-    ? `featured ${baseResultsType}`
-    : filterParam === 'personalized'
-      ? `personalized ${baseResultsType}`
-      : filterParam === 'searches'
-        ? `${baseResultsType} based on your searches`
-        : baseResultsType;
+  const specialResultsType = isSeller && (
+    isFeaturedProjectsView || isProjectsToBidForView || isBasedOnSearchesView
+  )
+    ? service
+    : null;
+
+  const resultsType = specialResultsType || (
+    filterParam === 'featured'
+      ? `featured ${baseResultsType}`
+      : filterParam === 'personalized'
+        ? `personalized ${baseResultsType}`
+        : filterParam === 'searches'
+          ? `${baseResultsType} based on your searches`
+          : baseResultsType
+  );
   const sortedResults = useMemo(() => (isSeller ? applyProjectFilters : applyServiceFilters), [applyProjectFilters, applyServiceFilters, isSeller]);
   const totalResults = sortedResults.length;
   const totalPages = Math.max(1, Math.ceil(totalResults / PAGE_SIZE));

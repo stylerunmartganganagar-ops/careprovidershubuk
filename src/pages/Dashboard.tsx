@@ -195,6 +195,18 @@ export default function DashboardPage() {
     activity: { messages: 0, savedServices: 0 }
   });
 
+  const [clientProfileCompletion, setClientProfileCompletion] = useState({
+    percentage: 0,
+    level: 'Beginner',
+    fields: {
+      avatar: false,
+      description: false,
+      portfolio: false,
+      phone: false,
+      kyc: false
+    }
+  });
+
   console.log('📊 Initial stats state:', stats);
 
   // Log when user changes
@@ -328,6 +340,76 @@ export default function DashboardPage() {
     fetchStats();
   }, [user?.id]);
 
+  // Compute client profile completion (including KYC)
+  useEffect(() => {
+    const computeProfileCompletion = async () => {
+      if (!user?.id) {
+        setClientProfileCompletion({
+          percentage: 0,
+          level: 'Beginner',
+          fields: { avatar: false, description: false, portfolio: false, phone: false, kyc: false }
+        });
+        return;
+      }
+
+      let kycApproved = false;
+
+      try {
+        const { data: kycDoc } = await (supabase
+          .from('kyc_documents')
+          .select('status')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle() as any);
+
+        if (kycDoc && kycDoc.status === 'approved') {
+          kycApproved = true;
+        }
+      } catch (e) {
+        console.warn('Failed to load KYC status for profile completion widget', e);
+      }
+
+      const avatar = !!user.avatar;
+      const description = !!(user as any).description && (user as any).description.trim() !== '';
+      const portfolio = !!((user as any).website || (user as any).company || (user as any).bio);
+      const phone = !!user.phone;
+
+      let percentage = 0;
+      let level = 'Beginner';
+
+      if (kycApproved) {
+        percentage = 100;
+        level = 'Verified';
+      } else {
+        const fields = [avatar, description, portfolio, phone];
+        const completed = fields.filter(Boolean).length;
+        const total = fields.length;
+        percentage = total ? Math.round((completed / total) * 100) : 0;
+
+        if (percentage >= 80) {
+          level = 'Advanced';
+        } else if (percentage >= 40) {
+          level = 'Intermediate';
+        }
+      }
+
+      setClientProfileCompletion({
+        percentage,
+        level,
+        fields: {
+          avatar,
+          description,
+          portfolio,
+          phone,
+          kyc: kycApproved
+        }
+      });
+    };
+
+    computeProfileCompletion();
+  }, [user?.id, user?.avatar]);
+
   // Log when stats change
   useEffect(() => {
     console.log('🔄 STATS STATE CHANGED:', stats);
@@ -356,6 +438,13 @@ export default function DashboardPage() {
       icon: Package,
       color: 'bg-purple-500',
       href: '/my-orders'
+    },
+    {
+      title: 'My Projects',
+      description: 'Manage your posted projects',
+      icon: BarChart3,
+      color: 'bg-indigo-500',
+      href: '/my-projects'
     },
     {
       title: 'Saved Services',
@@ -664,23 +753,63 @@ export default function DashboardPage() {
             </section>
           </div>
 
-          {/* Right Column - Recent Activity & Quick Actions */}
+          {/* Right Column - Profile Completion, My Projects & Quick Actions */}
           <div className="space-y-8">
-            {/* Recent Activity */}
+            {/* Profile Completion (Client) */}
             <section>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">Recent Activity</h2>
-                <Button variant="outline" size="sm" disabled>
-                  View All
-                </Button>
-              </div>
+              <h2 className="text-xl font-bold mb-4">Profile Completion</h2>
               <Card>
                 <CardContent className="p-6">
-                  <div className="space-y-4">
-                    <div className="text-center py-4 text-gray-500">
-                      No recent activity
+                  <div className="flex justify-between items-center mb-4 cursor-pointer hover:bg-gray-50 p-2 rounded" onClick={() => navigate('/user-profile')}>
+                    <span className="font-semibold">{clientProfileCompletion.percentage}% Complete</span>
+                    <Badge variant="secondary">{clientProfileCompletion.level}</Badge>
+                  </div>
+                  <Progress value={clientProfileCompletion.percentage} className="mb-4 cursor-pointer" />
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span>Profile photo</span>
+                      {clientProfileCompletion.fields.avatar ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Description</span>
+                      {clientProfileCompletion.fields.description ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex justify-between cursor-pointer hover:bg-gray-50 p-1 rounded">
+                      <span>Portfolio</span>
+                      {clientProfileCompletion.fields.portfolio ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Phone verification</span>
+                      {clientProfileCompletion.fields.phone ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span>KYC verification</span>
+                      {clientProfileCompletion.fields.kyc ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
                     </div>
                   </div>
+                  <Button className="w-full mt-4" variant="outline" onClick={() => navigate('/user-profile')}>
+                    Complete Profile
+                  </Button>
                 </CardContent>
               </Card>
             </section>

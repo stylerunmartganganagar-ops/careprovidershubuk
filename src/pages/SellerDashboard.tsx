@@ -41,7 +41,8 @@ import {
   Zap,
   Coins,
   Search,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { BidDialog } from '../components/BidDialog';
@@ -74,8 +75,10 @@ export default function SellerDashboard() {
     fields: {
       avatar: false,
       description: false,
+      skills: false,
       portfolio: false,
-      phone: false
+      phone: false,
+      kyc: false
     }
   });
 
@@ -323,7 +326,7 @@ export default function SellerDashboard() {
             active: (activeOrders || 0) + (activeMilestoneOrders || 0),
             completed: (completedOrders || 0) + (completedMilestoneOrders || 0),
             cancelled: 0, // Could be implemented
-            inQueue: 0 // Could be implemented
+            inQueue: (activeOrders || 0) + (activeMilestoneOrders || 0)
           },
           reviews: {
             average: avgRating,
@@ -374,15 +377,21 @@ export default function SellerDashboard() {
     console.log('🔄 Current earnings in state:', realStats.earnings);
   }, [realStats]);
 
-  // Calculate profile completion
+  // Calculate profile completion (including KYC)
   useEffect(() => {
     if (!user?.id) {
-      setProfileCompletion({ percentage: 0, level: 'Beginner', badge: 'Getting Started', fields: {
-        avatar: false,
-        description: false,
-        portfolio: false,
-        phone: false
-      } });
+      setProfileCompletion({
+        percentage: 0,
+        level: 'Beginner',
+        badge: 'Getting Started',
+        fields: {
+          avatar: false,
+          description: false,
+          portfolio: false,
+          phone: false,
+          kyc: false
+        }
+      });
       return;
     }
 
@@ -394,13 +403,32 @@ export default function SellerDashboard() {
           .select('*', { count: 'exact', head: true })
           .eq('provider_id', user.id);
 
+        // Fetch latest KYC status
+        let kycApproved = false;
+        try {
+          const { data: kycDoc } = await (supabase
+            .from('kyc_documents')
+            .select('status')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle() as any);
+
+          if (kycDoc && kycDoc.status === 'approved') {
+            kycApproved = true;
+          }
+        } catch (e) {
+          console.warn('SellerDashboard: failed to load KYC status for profile completion', e);
+        }
+
         let completedFields = 0;
-        const totalFields = 4;
         const fieldStatus = {
           avatar: false,
           description: false,
+          skills: false,
           portfolio: false,
-          phone: false
+          phone: false,
+          kyc: false
         };
 
         // Profile photo (avatar)
@@ -415,6 +443,11 @@ export default function SellerDashboard() {
           fieldStatus.description = true;
         }
 
+        // Skills (specializations) - visual only, does NOT affect percentage
+        if ((user.specializations as any)?.length) {
+          fieldStatus.skills = true;
+        }
+
         // Portfolio (services)
         if ((portfolioCount || 0) > 0) {
           completedFields++;
@@ -427,19 +460,29 @@ export default function SellerDashboard() {
           fieldStatus.phone = true;
         }
 
-        const percentage = Math.round((completedFields / totalFields) * 100);
+        let percentage = 0;
         let level = 'Beginner';
         let badge = 'Getting Started';
 
-        if (percentage >= 75) {
+        if (kycApproved) {
+          percentage = 100;
           level = 'Expert';
-          badge = 'Professional';
-        } else if (percentage >= 50) {
-          level = 'Intermediate';
-          badge = 'Growing';
-        } else if (percentage >= 25) {
-          level = 'Novice';
-          badge = 'Building';
+          badge = 'Verified Seller';
+          fieldStatus.kyc = true;
+        } else {
+          const totalFields = 4;
+          percentage = Math.round((completedFields / totalFields) * 100);
+
+          if (percentage >= 75) {
+            level = 'Expert';
+            badge = 'Professional';
+          } else if (percentage >= 50) {
+            level = 'Intermediate';
+            badge = 'Growing';
+          } else if (percentage >= 25) {
+            level = 'Novice';
+            badge = 'Building';
+          }
         }
 
         setProfileCompletion({ percentage, level, badge, fields: fieldStatus });
@@ -449,7 +492,7 @@ export default function SellerDashboard() {
     };
 
     calculateCompletion();
-  }, [user]);
+  }, [user?.id, user?.avatar]);
 
   // Handle search functionality
   const handleSearch = async (query: string) => {
@@ -992,7 +1035,7 @@ export default function SellerDashboard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => navigate(`/searchresults?service=${encodeURIComponent('Featured Projects')}`)}
                 >
                   View All
                 </Button>
@@ -1098,8 +1141,8 @@ export default function SellerDashboard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
                   className="self-start sm:self-auto"
+                  onClick={() => navigate(`/searchresults?service=${encodeURIComponent('Projects to Bid For')}`)}
                 >
                   View All
                 </Button>
@@ -1211,8 +1254,8 @@ export default function SellerDashboard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled
                   className="self-start sm:self-auto"
+                  onClick={() => navigate(`/searchresults?service=${encodeURIComponent('Based on Your Searches')}`)}
                 >
                   View All
                 </Button>
@@ -1243,7 +1286,11 @@ export default function SellerDashboard() {
             <section>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold">Messages</h2>
-                <Button variant="outline" size="sm" disabled>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/messages')}
+                >
                   View All
                 </Button>
               </div>
@@ -1371,61 +1418,109 @@ export default function SellerDashboard() {
 
             {/* Profile Completion */}
             <section>
-              <h2 className="text-xl font-bold mb-4">Profile Completion</h2>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Profile Completion</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-primary mb-2">
+                      {profileCompletion.percentage}%
+                    </div>
+                    <Progress
+                      value={profileCompletion.percentage}
+                      className="mb-4 cursor-pointer"
+                      onClick={() => navigate('/seller/update-profile')}
+                    />
+                    <p className="text-sm text-gray-600 mb-4">
+                      Complete your profile to attract more clients
+                    </p>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>Profile photo</span>
+                        {profileCompletion.fields.avatar ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Professional bio</span>
+                        {profileCompletion.fields.description ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Skills &amp; expertise</span>
+                        {user.specializations && user.specializations.length > 0 ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between cursor-pointer hover:bg-gray-50 p-1 rounded" onClick={() => navigate('/seller/portfolio')}>
+                        <span>Portfolio</span>
+                        {profileCompletion.fields.portfolio ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Certifications</span>
+                        {/* Placeholder: treat as incomplete until wired to real data */}
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      </div>
+                      <div className="flex justify-between">
+                        <span>KYC verification</span>
+                        {profileCompletion.fields.kyc ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full mt-4"
+                      variant="outline"
+                      onClick={() => navigate('/seller/update-profile')}
+                    >
+                      Complete Profile
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+
+            {/* KYC Verification */}
+            <section>
+              <h2 className="text-xl font-bold mb-4">KYC Verification</h2>
               <Card>
                 <CardContent className="p-6">
-                  <div 
-                    className="flex justify-between items-center mb-4 cursor-pointer hover:bg-gray-50 p-2 rounded"
-                    onClick={() => navigate('/seller/update-profile')}
-                  >
-                    <span className="font-semibold">{profileCompletion.percentage}% Complete</span>
-                    <Badge variant="secondary">{profileCompletion.level}</Badge>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <Shield className="h-5 w-5 text-gray-400 mr-2" />
+                      <span>ID Verification</span>
+                    </div>
+                    {profileCompletion.fields.kyc ? (
+                      <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate('/kyc-verification')}
+                      >
+                        Verify Now
+                      </Button>
+                    )}
                   </div>
-                  <Progress value={profileCompletion.percentage} className="mb-4 cursor-pointer" onClick={() => navigate('/seller/update-profile')} />
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Profile photo</span>
-                      {profileCompletion.fields.avatar ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Description</span>
-                      {profileCompletion.fields.description ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                    <div 
-                      className="flex justify-between cursor-pointer hover:bg-gray-50 p-1 rounded"
-                      onClick={() => navigate('/seller/portfolio')}
-                    >
-                      <span>Portfolio</span>
-                      {profileCompletion.fields.portfolio ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Phone verification</span>
-                      {profileCompletion.fields.phone ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                  </div>
-                  <Button 
-                    className="w-full mt-4" 
-                    variant="outline"
-                    onClick={() => navigate('/seller/update-profile')}
-                  >
-                    Complete Profile
-                  </Button>
+                  {!profileCompletion.fields.kyc && (
+                    <p className="text-xs text-gray-500 mt-3">
+                      Complete your ID verification to increase trust and unlock full marketplace features.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </section>

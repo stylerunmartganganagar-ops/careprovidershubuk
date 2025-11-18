@@ -464,6 +464,41 @@ export function useProjectDetail(projectId: string | undefined) {
   return { project, loading, error };
 }
 
+export async function getBidTokensRequiredForBudget(budget: number | null): Promise<number> {
+  try {
+    const safeBudget = typeof budget === 'number' && !Number.isNaN(budget) ? budget : 0;
+    const { data, error } = await (supabase as any)
+      .from('project_bid_token_rules')
+      .select('id, label, min_budget, max_budget, tokens_required')
+      .order('min_budget', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching bid token rules:', error);
+      return 1;
+    }
+
+    const rules = (data as any[]) || [];
+    if (!rules.length) return 1;
+
+    const matched = rules.find((rule: any) => {
+      const min = Number(rule.min_budget) || 0;
+      const max = rule.max_budget === null || rule.max_budget === undefined ? null : Number(rule.max_budget);
+      if (safeBudget < min) return false;
+      if (max !== null && safeBudget >= max) return false;
+      return true;
+    });
+
+    if (!matched) return 1;
+
+    const tokensRequired = Number(matched.tokens_required);
+    if (!Number.isFinite(tokensRequired)) return 1;
+    return tokensRequired < 0 ? 0 : tokensRequired;
+  } catch (err) {
+    console.error('Failed to determine bid tokens required:', err);
+    return 1;
+  }
+}
+
 export function useSubmitBid() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -478,7 +513,6 @@ export function useSubmitBid() {
       const sellerId = authData?.user?.id;
       if (!sellerId) throw new Error('Not authenticated');
 
-      // Check token balance first
       const { data: userRow, error: userErr } = await (supabase as any)
         .from('users')
         .select('bid_tokens, name, username')
@@ -486,8 +520,22 @@ export function useSubmitBid() {
         .single();
       if (userErr) throw userErr;
       const currentTokens = (userRow as any)?.bid_tokens ?? 0;
-      if (currentTokens < 1) {
-        throw new Error('You do not have enough tokens to place a bid.');
+
+      const { data: projectRow, error: projErr } = await (supabase as any)
+        .from('projects')
+        .select('user_id, title, budget')
+        .eq('id', projectId)
+        .single();
+      if (projErr) throw projErr;
+
+      const projectBudgetRaw = (projectRow as any)?.budget ?? 0;
+      const projectBudget = typeof projectBudgetRaw === 'number'
+        ? projectBudgetRaw
+        : Number(projectBudgetRaw) || 0;
+      const tokensRequired = await getBidTokensRequiredForBudget(projectBudget);
+
+      if (currentTokens < tokensRequired) {
+        throw new Error(`You need at least ${tokensRequired} tokens to place a bid for this project.`);
       }
 
       const { data, error } = await (supabase as any)
@@ -496,33 +544,30 @@ export function useSubmitBid() {
           project_id: projectId,
           seller_id: sellerId,
           bid_amount: bidAmount,
-          message: message || null
+          message: message || null,
+          tokens_spent: tokensRequired,
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      // Deduct 1 token after successful bid insert
       const { error: tokenErr } = await (supabase as any)
         .from('users')
-        .update({ bid_tokens: Math.max(0, (currentTokens ?? 0) - 1) })
+        .update({ bid_tokens: Math.max(0, (currentTokens ?? 0) - tokensRequired) })
         .eq('id', sellerId);
       if (tokenErr) throw tokenErr;
+
       try {
-        const { data: proj } = await (supabase as any)
-          .from('projects')
-          .select('user_id, title')
-          .eq('id', projectId)
-          .single();
-        const ownerId = (proj as any)?.user_id;
+        const ownerId = (projectRow as any)?.user_id;
+        const projectTitle = (projectRow as any)?.title ?? '';
         const sellerName = (userRow as any)?.name || (userRow as any)?.username || 'A seller';
         const bidId = (data as any)?.id;
         if (ownerId) {
           await (supabase.from('notifications') as any).insert({
             user_id: ownerId,
             title: `New bid from ${sellerName}`,
-            description: `${sellerName} placed a bid of £${bidAmount} on your project "${(proj as any)?.title ?? ''}"`,
+            description: `${sellerName} placed a bid of £${bidAmount} on your project "${projectTitle}"`,
             type: 'bid',
             related_id: bidId ?? null,
             is_read: false

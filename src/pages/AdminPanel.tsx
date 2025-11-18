@@ -54,7 +54,8 @@ import {
   Flag,
   Archive,
   RefreshCw,
-  Plus
+  Plus,
+  Coins
 } from 'lucide-react';
 import { Database, supabase } from '../lib/supabase';
 import { notifyAdminWarning } from '../lib/notifications';
@@ -265,6 +266,14 @@ type CountOnlyResponse = {
   count: number | null;
 };
 
+type BidTokenRuleRow = {
+  id: string;
+  label: string;
+  min_budget: number | null;
+  max_budget: number | null;
+  tokens_required: number;
+};
+
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -350,6 +359,8 @@ export default function AdminPanel() {
   const [reportsLoading, setReportsLoading] = useState(false);
 
   const isMountedRef = useRef(true);
+  const [bidTokenRules, setBidTokenRules] = useState<BidTokenRuleRow[]>([]);
+  const [bidTokenRulesLoading, setBidTokenRulesLoading] = useState(false);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -454,6 +465,33 @@ export default function AdminPanel() {
     } finally {
       if (isMountedRef.current) {
         setReportsLoading(false);
+      }
+    }
+  }, []);
+
+  const loadBidTokenRules = useCallback(async () => {
+    try {
+      setBidTokenRulesLoading(true);
+      const { data, error } = await supabase
+        .from('project_bid_token_rules')
+        .select('id, label, min_budget, max_budget, tokens_required')
+        .order('min_budget', { ascending: true });
+      if (error) throw error;
+      const rows = ((data as any[]) || []).map((row) => ({
+        id: row.id as string,
+        label: row.label as string,
+        min_budget: (row.min_budget as number | null) ?? null,
+        max_budget: (row.max_budget as number | null) ?? null,
+        tokens_required: Number(row.tokens_required || 0),
+      }));
+      if (isMountedRef.current) {
+        setBidTokenRules(rows);
+      }
+    } catch (e) {
+      console.error('Error loading bid token rules', e);
+    } finally {
+      if (isMountedRef.current) {
+        setBidTokenRulesLoading(false);
       }
     }
   }, []);
@@ -1369,6 +1407,7 @@ export default function AdminPanel() {
         loadPlans(),
         loadCreatedOrders(),
         loadAcceptedOrders(),
+        loadBidTokenRules(),
       ]);
     };
 
@@ -1388,6 +1427,7 @@ export default function AdminPanel() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => { loadReviews(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadReportsAnalytics(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_plans' }, () => { loadPlans(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_bid_token_rules' }, () => { loadBidTokenRules(); })
       .subscribe();
 
     // Call all load functions
@@ -1417,6 +1457,7 @@ export default function AdminPanel() {
     { id: 'orders_created', label: 'Created Orders', icon: Package },
     { id: 'orders_accepted', label: 'Accepted Orders', icon: Package },
     { id: 'plans', label: 'Seller Plans', icon: Package },
+    { id: 'bid_tokens', label: 'Bid Token Rules', icon: Coins },
     { id: 'reviews', label: 'Review Management', icon: Star },
     { id: 'reports', label: 'Reports & Analytics', icon: Activity },
     { id: 'settings', label: 'Platform Settings', icon: Settings }
@@ -1644,6 +1685,108 @@ export default function AdminPanel() {
       </div>
     );
   }
+
+  const renderBidTokenRules = () => {
+    const formatRange = (min: number | null, max: number | null) => {
+      const minVal = Number(min || 0);
+      if (max === null || max === undefined) {
+        return `£${minVal.toLocaleString()}+`;
+      }
+      const maxVal = Number(max);
+      return `£${minVal.toLocaleString()} – £${maxVal.toLocaleString()}`;
+    };
+
+    const handleChangeTokens = (id: string, value: string) => {
+      const numeric = Number(value);
+      setBidTokenRules((prev) => prev.map((rule) => (
+        rule.id === id
+          ? { ...rule, tokens_required: Number.isNaN(numeric) ? 0 : numeric }
+          : rule
+      )));
+    };
+
+    const saveRule = async (rule: BidTokenRuleRow) => {
+      try {
+        const { error } = await supabase
+          .from('project_bid_token_rules')
+          .update({ tokens_required: rule.tokens_required })
+          .eq('id', rule.id);
+        if (error) throw error;
+        await loadBidTokenRules();
+      } catch (e) {
+        console.error('Error saving bid token rule', e);
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold">Bid Token Rules</h2>
+            <p className="text-sm text-gray-500">Control how many tokens sellers spend to bid on projects, based on the project budget.</p>
+          </div>
+          <Button variant="outline" onClick={() => loadBidTokenRules()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Budget ranges and token costs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Budget range (GBP)</TableHead>
+                  <TableHead>Internal label</TableHead>
+                  <TableHead>Tokens required</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bidTokenRulesLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-sm text-gray-500">
+                      Loading bid token rules...
+                    </TableCell>
+                  </TableRow>
+                ) : bidTokenRules.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-6 text-center text-sm text-gray-500">
+                      No bid token rules found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  bidTokenRules.map((rule) => (
+                    <TableRow key={rule.id}>
+                      <TableCell>{formatRange(rule.min_budget, rule.max_budget)}</TableCell>
+                      <TableCell className="font-mono text-xs text-gray-500">{rule.label}</TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={rule.tokens_required}
+                          onChange={(e) => handleChangeTokens(rule.id, e.target.value)}
+                          className="w-24"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" onClick={() => saveRule(rule)}>
+                          Save
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
 
   const renderSettings = () => {
     const save = async () => {
@@ -2994,6 +3137,7 @@ export default function AdminPanel() {
             {activeTab === 'orders_created' && renderCreatedOrders()}
             {activeTab === 'orders_accepted' && renderAcceptedOrders()}
             {activeTab === 'plans' && renderPlans()}
+            {activeTab === 'bid_tokens' && renderBidTokenRules()}
             {activeTab === 'reviews' && renderReviews()}
             {activeTab === 'reports' && renderReports()}
             {activeTab === 'settings' && renderSettings()}

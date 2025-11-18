@@ -10,7 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Input } from '../components/ui/input';
 import { Separator } from '../components/ui/separator';
 import { useAuth } from '../lib/auth.tsx';
-import { useProjectDetail } from '../hooks/useProjects';
+import { useProjectDetail, getBidTokensRequiredForBudget } from '../hooks/useProjects';
 import { supabase } from '../lib/supabase';
 import {
   ArrowLeft,
@@ -47,6 +47,7 @@ export default function BidProject() {
   const [coverLetter, setCoverLetter] = useState('');
   const [bidTokens, setBidTokens] = useState<number | null>(null);
   const [loadingTokens, setLoadingTokens] = useState(true);
+  const [tokensRequired, setTokensRequired] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [existingBid, setExistingBid] = useState<ExistingBid | null>(null);
 
@@ -108,6 +109,27 @@ export default function BidProject() {
   }, [projectId, user?.id]);
 
   useEffect(() => {
+    if (!project) {
+      setTokensRequired(null);
+      return;
+    }
+
+    const loadTokensRequired = async () => {
+      try {
+        const budgetRaw = (project as any).budget ?? 0;
+        const budget = typeof budgetRaw === 'number' ? budgetRaw : Number(budgetRaw) || 0;
+        const required = await getBidTokensRequiredForBudget(budget);
+        setTokensRequired(required);
+      } catch (err) {
+        console.error('Error fetching bid tokens required:', err);
+        setTokensRequired(1);
+      }
+    };
+
+    loadTokensRequired();
+  }, [project]);
+
+  useEffect(() => {
     if (!authLoading && !user) {
       toast.error('You need to be logged in to place a bid.');
       navigate('/login');
@@ -123,8 +145,14 @@ export default function BidProject() {
 
   const canBid = useMemo(() => {
     if (bidTokens === null) return false;
-    return bidTokens > 0;
-  }, [bidTokens]);
+    if (tokensRequired === null) {
+      return bidTokens > 0;
+    }
+    if (tokensRequired <= 0) {
+      return true;
+    }
+    return bidTokens >= tokensRequired;
+  }, [bidTokens, tokensRequired]);
 
   const handleSubmitBid = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,8 +162,17 @@ export default function BidProject() {
       return;
     }
 
+    if (tokensRequired === null || tokensRequired < 0) {
+      toast.error('Unable to determine tokens required to place a bid. Please try again later.');
+      return;
+    }
+
     if (!canBid) {
-      toast.error('You need tokens to place a bid. Please purchase tokens.');
+      if (tokensRequired > 0) {
+        toast.error(`You need at least ${tokensRequired} tokens to place a bid. Please purchase tokens.`);
+      } else {
+        toast.error('You need tokens to place a bid. Please purchase tokens.');
+      }
       navigate('/seller/tokens');
       return;
     }
@@ -187,7 +224,8 @@ export default function BidProject() {
           project_id: projectId,
           seller_id: user.id,
           bid_amount: amount,
-          message: bidMessage
+          message: bidMessage,
+          tokens_spent: tokensRequired
         })
         .select('id, bid_amount, status, created_at')
         .single();
@@ -196,7 +234,7 @@ export default function BidProject() {
 
       const { data: updatedUser, error: tokenError } = await supabaseClient
         .from('users')
-        .update({ bid_tokens: Math.max(0, (bidTokens ?? 1) - 1) })
+        .update({ bid_tokens: Math.max(0, (bidTokens ?? tokensRequired) - tokensRequired) })
         .eq('id', user.id)
         .select('bid_tokens')
         .single();
@@ -209,7 +247,7 @@ export default function BidProject() {
       if (updated && typeof updated.bid_tokens === 'number') {
         setBidTokens(updated.bid_tokens);
       } else {
-        setBidTokens(Math.max(0, (bidTokens ?? 1) - 1));
+        setBidTokens(Math.max(0, (bidTokens ?? tokensRequired) - tokensRequired));
       }
       setExistingBid((bidRow as ExistingBid) ?? null);
 
@@ -312,7 +350,13 @@ export default function BidProject() {
           </Button>
 
           <Badge variant="outline" className="text-xs">
-            Each bid costs <strong className="ml-1">1 token</strong>
+            {tokensRequired !== null ? (
+              <>
+                Each bid costs <strong className="ml-1">{tokensRequired} token{tokensRequired === 1 ? '' : 's'}</strong>
+              </>
+            ) : (
+              'Calculating tokens required...'
+            )}
           </Badge>
         </div>
 
@@ -408,7 +452,7 @@ export default function BidProject() {
                 </p>
                 <p className="flex items-start gap-2">
                   <Coins className="h-4 w-4 text-emerald-500 mt-0.5" />
-                  Each bid costs <strong className="text-gray-900">1 token</strong>. Manage your tokens wisely.
+                  Each bid costs <strong className="text-gray-900">{tokensRequired !== null ? `${tokensRequired} token${tokensRequired === 1 ? '' : 's'}` : 'tokens'}</strong>. Manage your tokens wisely.
                 </p>
               </CardContent>
             </Card>
@@ -428,7 +472,7 @@ export default function BidProject() {
               </CardHeader>
               <CardContent className="text-sm text-gray-600 space-y-3">
                 <p>
-                  Every seller starts with <strong>100 tokens</strong>. Placing a bid deducts one token. Tokens help prevent spam and maintain project quality.
+                  Every seller starts with <strong>100 tokens</strong>. Placing a bid deducts tokens based on the project budget. Tokens help prevent spam and maintain project quality.
                 </p>
                 {!canBid && (
                   <div className="p-3 border border-dashed border-red-300 rounded-lg bg-red-50 text-red-700 text-xs">
@@ -516,7 +560,7 @@ export default function BidProject() {
                       <div className="flex items-center gap-2 text-sm text-gray-600">
                         <ShieldCheck className="h-4 w-4 text-primary" />
                         <span>
-                          This bid will cost <strong>1 token</strong>. Tokens are only deducted when your bid is submitted successfully.
+                          This bid will cost <strong>{tokensRequired !== null ? `${tokensRequired} token${tokensRequired === 1 ? '' : 's'}` : 'tokens'}</strong>. Tokens are only deducted when your bid is submitted successfully.
                         </span>
                       </div>
                       <Button type="submit" disabled={submitting || !canBid}>

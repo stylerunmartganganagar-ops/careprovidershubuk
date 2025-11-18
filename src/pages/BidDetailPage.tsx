@@ -26,7 +26,7 @@ export default function BidDetailPage() {
           .select(`
             *,
             seller:users!bids_seller_id_fkey (
-              id, name, username, avatar, rating, review_count, location
+              id, name, username, avatar, location
             )
           `)
           .eq('id', bidId)
@@ -37,7 +37,7 @@ export default function BidDetailPage() {
           try {
             const { data: userRow } = await supabase
               .from('users')
-              .select('id, name, username, avatar, rating, review_count, location')
+              .select('id, name, username, avatar, location')
               .eq('id', bidData.seller_id)
               .single();
             if (userRow) {
@@ -48,8 +48,8 @@ export default function BidDetailPage() {
                   name: userRow.name,
                   username: userRow.username,
                   avatar: userRow.avatar,
-                  rating: typeof userRow.rating === 'number' ? userRow.rating : Number(userRow.rating) || 0,
-                  review_count: userRow.review_count || 0,
+                  rating: 0,
+                  review_count: 0,
                   location: userRow.location || null,
                 },
               };

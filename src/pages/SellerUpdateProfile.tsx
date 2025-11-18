@@ -71,6 +71,18 @@ export default function SellerUpdateProfile() {
   const [newSkill, setNewSkill] = useState('');
   const [newLanguage, setNewLanguage] = useState('');
 
+  const [profileCompletion, setProfileCompletion] = useState({
+    percentage: 0,
+    fields: {
+      avatar: false,
+      bio: false,
+      skills: false,
+      portfolio: false,
+      certifications: false,
+      kyc: false
+    }
+  });
+
   // Load profile data on component mount
   useEffect(() => {
     const loadProfileData = async () => {
@@ -205,6 +217,79 @@ export default function SellerUpdateProfile() {
     loadProfileData();
   }, [user]);
 
+  // Compute profile completion for this page based on current profile data (including KYC)
+  // IMPORTANT: uses the same logic as SellerDashboard so percentages match
+  useEffect(() => {
+    if (!user?.id) {
+      setProfileCompletion({
+        percentage: 0,
+        fields: {
+          avatar: false,
+          bio: false,
+          skills: false,
+          portfolio: false,
+          certifications: false,
+          kyc: false
+        }
+      });
+      return;
+    }
+
+    const compute = async () => {
+      let kycApproved = false;
+      try {
+        const { data: kycDoc } = await (supabase
+          .from('kyc_documents')
+          .select('status')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle() as any);
+
+        if (kycDoc && kycDoc.status === 'approved') {
+          kycApproved = true;
+        }
+      } catch (e) {
+        console.warn('SellerUpdateProfile: failed to load KYC status for profile completion', e);
+      }
+
+      const avatar = !!profile.profileImage;
+      const bio = !!profile.bio && profile.bio.trim().length > 0;
+      const phone = !!profile.phone;
+      const portfolio = profile.portfolioItems > 0;
+
+      // Skills and certifications are shown visually but do NOT affect the
+      // percentage, to stay in sync with SellerDashboard logic.
+      const skills = profile.skills.length > 0;
+      const certifications = profile.certifications.length > 0;
+
+      let percentage = 0;
+
+      if (kycApproved) {
+        percentage = 100;
+      } else {
+        const flags = [avatar, bio, portfolio, phone];
+        const completed = flags.filter(Boolean).length;
+        const total = flags.length;
+        percentage = total ? Math.round((completed / total) * 100) : 0;
+      }
+
+      setProfileCompletion({
+        percentage,
+        fields: {
+          avatar,
+          bio,
+          skills,
+          portfolio,
+          certifications,
+          kyc: kycApproved
+        }
+      });
+    };
+
+    compute();
+  }, [user?.id, profile]);
+
   // Calculate member level for sellers based on various factors
   const calculateMemberLevel = ({
     completedOrders,
@@ -328,8 +413,6 @@ export default function SellerUpdateProfile() {
       setSaving(false);
     }
   };
-
-  const profileCompletion = 85; // Mock completion percentage
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -598,32 +681,60 @@ export default function SellerUpdateProfile() {
               <CardContent>
                 <div className="text-center">
                   <div className="text-3xl font-bold text-primary mb-2">
-                    {profileCompletion}%
+                    {profileCompletion.percentage}%
                   </div>
-                  <Progress value={profileCompletion} className="mb-4" />
+                  <Progress value={profileCompletion.percentage} className="mb-4" />
                   <p className="text-sm text-gray-600 mb-4">
                     Complete your profile to attract more clients
                   </p>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Profile photo</span>
-                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      {profileCompletion.fields.avatar ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span>Professional bio</span>
-                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      {profileCompletion.fields.bio ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span>Skills & expertise</span>
-                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      {profileCompletion.fields.skills ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span>Portfolio</span>
-                      <AlertCircle className="h-4 w-4 text-orange-600" />
+                      {profileCompletion.fields.portfolio ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span>Certifications</span>
-                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      {profileCompletion.fields.certifications ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span>KYC verification</span>
+                      {profileCompletion.fields.kyc ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-orange-600" />
+                      )}
                     </div>
                   </div>
                 </div>
