@@ -140,7 +140,9 @@ export default function KYCVerification() {
       if (submitError) throw submitError;
 
       setSuccess(true);
-      setTimeout(() => navigate('/profile'), 2000);
+      // Navigate to appropriate dashboard based on user role
+      const dashboardPath = user?.role === 'provider' ? '/seller-dashboard' : '/dashboard';
+      setTimeout(() => navigate(dashboardPath), 2000);
     } catch (error) {
       console.error('KYC submission failed:', error);
       setError('Failed to submit KYC documents. Please try again.');
@@ -430,8 +432,8 @@ export default function KYCVerification() {
             <p className="text-gray-600 mb-6">
               Your KYC documents have been submitted successfully. We'll review them within 24-48 hours.
             </p>
-            <Button onClick={() => navigate('/profile')} className="w-full">
-              Return to Profile
+            <Button onClick={() => navigate(user?.role === 'provider' ? '/seller-dashboard' : '/dashboard')} className="w-full">
+              Return to Dashboard
             </Button>
           </CardContent>
         </Card>

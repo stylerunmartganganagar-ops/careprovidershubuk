@@ -104,6 +104,13 @@ export default function UserProfile() {
     activeProjects: 0,
     memberLevel: 'Bronze',
   });
+  
+  // KYC Status
+  const [kycStatus, setKycStatus] = useState<{
+    status: 'none' | 'pending' | 'approved' | 'rejected';
+    submittedAt?: string;
+    rejectionReason?: string;
+  }>({ status: 'none' });
 
   // Handle profile data changes
   const handleProfileChange = (field: keyof ProfileData, value: string | string[]) => {
@@ -302,6 +309,40 @@ export default function UserProfile() {
 
     loadProfile();
     loadUserStats();
+    
+    // Load KYC status
+    const loadKycStatus = async () => {
+      if (!user?.id) return;
+      
+      try {
+        const { data: kycDoc, error } = await (supabase as any)
+          .from('kyc_documents')
+          .select('status, submitted_at, rejection_reason')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (error) {
+          console.error('Error loading KYC status:', error);
+          return;
+        }
+        
+        if (kycDoc) {
+          setKycStatus({
+            status: kycDoc.status as 'pending' | 'approved' | 'rejected',
+            submittedAt: kycDoc.submitted_at,
+            rejectionReason: kycDoc.rejection_reason,
+          });
+        } else {
+          setKycStatus({ status: 'none' });
+        }
+      } catch (e) {
+        console.error('Error loading KYC status:', e);
+      }
+    };
+    
+    loadKycStatus();
   }, [user?.id]);
 
   // Calculate member level based on user activity
@@ -871,21 +912,65 @@ export default function UserProfile() {
 
                         <div className="flex items-center justify-between">
                           <div className="flex items-center">
-                            <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                            {profileData.phone ? (
+                              <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                            ) : (
+                              <Shield className="h-5 w-5 text-gray-400 mr-2" />
+                            )}
                             <span>Phone Verified</span>
                           </div>
-                          <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                          {profileData.phone ? (
+                            <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                          ) : (
+                            <Badge variant="secondary">Not Added</Badge>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between">
                           <div className="flex items-center">
-                            <Shield className="h-5 w-5 text-gray-400 mr-2" />
-                            <span>ID Verification</span>
+                            {kycStatus.status === 'approved' ? (
+                              <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                            ) : kycStatus.status === 'pending' ? (
+                              <Shield className="h-5 w-5 text-yellow-500 mr-2" />
+                            ) : kycStatus.status === 'rejected' ? (
+                              <Shield className="h-5 w-5 text-red-500 mr-2" />
+                            ) : (
+                              <Shield className="h-5 w-5 text-gray-400 mr-2" />
+                            )}
+                            <span>ID Verification (KYC)</span>
                           </div>
-                          <Button variant="outline" size="sm" onClick={() => navigate('/kyc-verification')}>
-                            Verify Now
-                          </Button>
+                          {kycStatus.status === 'approved' ? (
+                            <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                          ) : kycStatus.status === 'pending' ? (
+                            <Badge className="bg-yellow-100 text-yellow-800">Pending Review</Badge>
+                          ) : kycStatus.status === 'rejected' ? (
+                            <div className="flex items-center space-x-2">
+                              <Badge className="bg-red-100 text-red-800">Rejected</Badge>
+                              <Button variant="outline" size="sm" onClick={() => navigate('/kyc-verification')}>
+                                Resubmit
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button variant="outline" size="sm" onClick={() => navigate('/kyc-verification')}>
+                              Verify Now
+                            </Button>
+                          )}
                         </div>
+                        
+                        {kycStatus.status === 'pending' && kycStatus.submittedAt && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Submitted on {new Date(kycStatus.submittedAt).toLocaleDateString()}. 
+                            Your documents are being reviewed. This usually takes 24-48 hours.
+                          </p>
+                        )}
+                        
+                        {kycStatus.status === 'rejected' && kycStatus.rejectionReason && (
+                          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-sm text-red-800">
+                              <strong>Rejection reason:</strong> {kycStatus.rejectionReason}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

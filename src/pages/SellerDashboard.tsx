@@ -81,6 +81,12 @@ export default function SellerDashboard() {
       kyc: false
     }
   });
+  
+  // KYC Details state for detailed status display
+  const [kycDetails, setKycDetails] = useState<{
+    status: 'none' | 'pending' | 'approved' | 'rejected';
+    rejectionReason?: string;
+  }>({ status: 'none' });
 
   console.log('SellerDashboard render:', { user: user?.id, userRole: user?.role });
 
@@ -405,20 +411,41 @@ export default function SellerDashboard() {
 
         // Fetch latest KYC status
         let kycApproved = false;
+        let kycPending = false;
+        let kycRejected = false;
+        let kycRejectionReason = '';
         try {
           const { data: kycDoc } = await (supabase
             .from('kyc_documents')
-            .select('status')
+            .select('status, rejection_reason')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle() as any);
 
-          if (kycDoc && kycDoc.status === 'approved') {
-            kycApproved = true;
+          if (kycDoc) {
+            if (kycDoc.status === 'approved') {
+              kycApproved = true;
+            } else if (kycDoc.status === 'pending') {
+              kycPending = true;
+            } else if (kycDoc.status === 'rejected') {
+              kycRejected = true;
+              kycRejectionReason = kycDoc.rejection_reason || '';
+            }
           }
         } catch (e) {
           console.warn('SellerDashboard: failed to load KYC status for profile completion', e);
+        }
+        
+        // Update KYC details state for display
+        if (kycApproved) {
+          setKycDetails({ status: 'approved' });
+        } else if (kycPending) {
+          setKycDetails({ status: 'pending' });
+        } else if (kycRejected) {
+          setKycDetails({ status: 'rejected', rejectionReason: kycRejectionReason });
+        } else {
+          setKycDetails({ status: 'none' });
         }
 
         let completedFields = 0;
@@ -1501,11 +1528,32 @@ export default function SellerDashboard() {
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
-                      <Shield className="h-5 w-5 text-gray-400 mr-2" />
-                      <span>ID Verification</span>
+                      {kycDetails.status === 'approved' ? (
+                        <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                      ) : kycDetails.status === 'pending' ? (
+                        <Shield className="h-5 w-5 text-yellow-500 mr-2" />
+                      ) : kycDetails.status === 'rejected' ? (
+                        <Shield className="h-5 w-5 text-red-500 mr-2" />
+                      ) : (
+                        <Shield className="h-5 w-5 text-gray-400 mr-2" />
+                      )}
+                      <span>ID Verification (KYC)</span>
                     </div>
-                    {profileCompletion.fields.kyc ? (
+                    {kycDetails.status === 'approved' ? (
                       <Badge className="bg-green-100 text-green-800">Verified</Badge>
+                    ) : kycDetails.status === 'pending' ? (
+                      <Badge className="bg-yellow-100 text-yellow-800">Pending Review</Badge>
+                    ) : kycDetails.status === 'rejected' ? (
+                      <div className="flex items-center space-x-2">
+                        <Badge className="bg-red-100 text-red-800">Rejected</Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate('/kyc-verification')}
+                        >
+                          Resubmit
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         variant="outline"
@@ -1516,10 +1564,25 @@ export default function SellerDashboard() {
                       </Button>
                     )}
                   </div>
-                  {!profileCompletion.fields.kyc && (
+                  
+                  {kycDetails.status === 'none' && (
                     <p className="text-xs text-gray-500 mt-3">
                       Complete your ID verification to increase trust and unlock full marketplace features.
                     </p>
+                  )}
+                  
+                  {kycDetails.status === 'pending' && (
+                    <p className="text-xs text-gray-500 mt-3">
+                      Your documents are being reviewed. This usually takes 24-48 hours.
+                    </p>
+                  )}
+                  
+                  {kycDetails.status === 'rejected' && kycDetails.rejectionReason && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-sm text-red-800">
+                        <strong>Rejection reason:</strong> {kycDetails.rejectionReason}
+                      </p>
+                    </div>
                   )}
                 </CardContent>
               </Card>

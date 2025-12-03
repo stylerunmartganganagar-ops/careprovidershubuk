@@ -224,6 +224,7 @@ type ApprovalItem = {
   content: string;
   budget?: number | null;
   isPremium?: boolean;
+  isKycApproved?: boolean;
 };
 
 type TokenPurchaseListItem = {
@@ -272,6 +273,26 @@ type BidTokenRuleRow = {
   min_budget: number | null;
   max_budget: number | null;
   tokens_required: number;
+};
+
+type KycDocumentRecord = {
+  id: string;
+  user_id: string;
+  document_type: string;
+  front_document_url: string;
+  back_document_url: string | null;
+  selfie_url: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  submitted_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  user?: {
+    name: string | null;
+    email: string | null;
+    role: string | null;
+  };
 };
 
 export default function AdminPanel() {
@@ -361,6 +382,18 @@ export default function AdminPanel() {
   const isMountedRef = useRef(true);
   const [bidTokenRules, setBidTokenRules] = useState<BidTokenRuleRow[]>([]);
   const [bidTokenRulesLoading, setBidTokenRulesLoading] = useState(false);
+
+  // KYC Management state
+  const [kycDocuments, setKycDocuments] = useState<KycDocumentRecord[]>([]);
+  const [kycLoading, setKycLoading] = useState(false);
+  const [selectedKycDocument, setSelectedKycDocument] = useState<KycDocumentRecord | null>(null);
+  const [kycReviewDialogOpen, setKycReviewDialogOpen] = useState(false);
+  const [kycAction, setKycAction] = useState<'approve' | 'reject'>('approve');
+  const [kycRejectionReason, setKycRejectionReason] = useState('');
+  const [kycProcessing, setKycProcessing] = useState(false);
+  const [kycSearchTerm, setKycSearchTerm] = useState('');
+  const [kycStatusFilter, setKycStatusFilter] = useState<string>('all');
+  const [kycUserTypeFilter, setKycUserTypeFilter] = useState<string>('all');
 
   const loadUsers = useCallback(async () => {
     try {
@@ -495,6 +528,95 @@ export default function AdminPanel() {
       }
     }
   }, []);
+
+  const loadKYCDocuments = useCallback(async () => {
+    try {
+      setKycLoading(true);
+      const { data, error } = await (supabase as any)
+        .from('kyc_documents')
+        .select(`
+          *,
+          user:users!kyc_documents_user_id_fkey(name, email, role)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      if (isMountedRef.current) {
+        setKycDocuments(data || []);
+      }
+    } catch (e) {
+      console.error('Error loading KYC documents', e);
+    } finally {
+      if (isMountedRef.current) {
+        setKycLoading(false);
+      }
+    }
+  }, []);
+
+  const handleKYCReview = async () => {
+    if (!selectedKycDocument) return;
+
+    setKycProcessing(true);
+    try {
+      const updateData = {
+        status: kycAction === 'approve' ? 'approved' : 'rejected',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: null, // Will be set by auth context if needed
+        ...(kycAction === 'reject' && { rejection_reason: kycRejectionReason }),
+      };
+
+      const { error } = await (supabase as any)
+        .from('kyc_documents')
+        .update(updateData)
+        .eq('id', selectedKycDocument.id);
+
+      if (error) throw error;
+
+      // If approved, also update the user's is_verified status
+      if (kycAction === 'approve') {
+        const { error: userError } = await (supabase as any)
+          .from('users')
+          .update({ is_verified: true })
+          .eq('id', selectedKycDocument.user_id);
+        
+        if (userError) {
+          console.error('Error updating user verification status:', userError);
+        }
+      }
+
+      // Update local state
+      const newStatus = kycAction === 'approve' ? 'approved' : 'rejected';
+      setKycDocuments(prev =>
+        prev.map(doc =>
+          doc.id === selectedKycDocument.id
+            ? { 
+                ...doc, 
+                status: newStatus as 'pending' | 'approved' | 'rejected',
+                reviewed_at: updateData.reviewed_at,
+                reviewed_by: updateData.reviewed_by,
+                ...(kycAction === 'reject' && { rejection_reason: kycRejectionReason }),
+              }
+            : doc
+        )
+      );
+
+      setKycReviewDialogOpen(false);
+      setSelectedKycDocument(null);
+      setKycRejectionReason('');
+      setKycAction('approve');
+      
+      // Reload to get fresh data
+      loadKYCDocuments();
+      // Also refresh users list to show updated KYC status
+      loadUsers();
+      // Refresh approvals to update KYC badges
+      loadApprovals();
+    } catch (error) {
+      console.error('Error updating KYC status:', error);
+    } finally {
+      setKycProcessing(false);
+    }
+  };
 
   const loadReviews = useCallback(async () => {
     try {
@@ -979,11 +1101,11 @@ export default function AdminPanel() {
       services.forEach((service) => referencedUserIds.add(service.provider_id));
       projects.forEach((project) => referencedUserIds.add(project.user_id));
 
-      const userLookup = new Map<string, UserSummaryRecord>();
+      const userLookup = new Map<string, UserSummaryRecord & { is_verified?: boolean }>();
       if (referencedUserIds.size > 0) {
         const { data: userRows, error: usersError } = await (supabase as any)
           .from('users')
-          .select('id, name, email, avatar')
+          .select('id, name, email, avatar, is_verified')
           .in('id', Array.from(referencedUserIds));
         if (usersError) {
           console.error('User lookup error:', usersError);
@@ -1002,16 +1124,22 @@ export default function AdminPanel() {
           avatar: record?.avatar ?? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(seed)}`,
         };
       };
+      
+      const isUserKycApproved = (userId: string) => {
+        const record = userLookup.get(userId);
+        return Boolean(record?.is_verified);
+      };
 
       const serviceItems: ApprovalItem[] = services
         .map((service) => ({
           id: service.id,
-          type: 'service_posting',
+          type: 'service_posting' as const,
           user: getUserSummary(service.provider_id, 'Service Provider', service.provider_id),
           submittedDate: service.created_at,
           status: (service.approval_status as ApprovalStatus) || 'pending',
           content: service.title ?? 'Service awaiting approval',
           isPremium: false,
+          isKycApproved: isUserKycApproved(service.provider_id),
         }));
 
       // Determine premium buyers
@@ -1034,13 +1162,14 @@ export default function AdminPanel() {
             : 'pending';
           return {
             id: project.id,
-            type: 'project_posting',
+            type: 'project_posting' as const,
             user: getUserSummary(project.user_id, 'Buyer Submission', project.user_id),
             submittedDate: project.created_at,
             status: normalizedStatus,
             content: project.title ?? 'Project awaiting approval',
             budget: project.budget ?? null,
             isPremium: premiumSet.has(project.user_id),
+            isKycApproved: isUserKycApproved(project.user_id),
           };
         });
 
@@ -1408,6 +1537,7 @@ export default function AdminPanel() {
         loadCreatedOrders(),
         loadAcceptedOrders(),
         loadBidTokenRules(),
+        loadKYCDocuments(),
       ]);
     };
 
@@ -1428,6 +1558,7 @@ export default function AdminPanel() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => { loadReportsAnalytics(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'token_plans' }, () => { loadPlans(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'project_bid_token_rules' }, () => { loadBidTokenRules(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kyc_documents' }, () => { loadKYCDocuments(); })
       .subscribe();
 
     // Call all load functions
@@ -1444,7 +1575,10 @@ export default function AdminPanel() {
     if (activeTab === 'settings') {
       loadSettings();
     }
-  }, [activeTab, loadSettings]);
+    if (activeTab === 'kyc') {
+      loadKYCDocuments();
+    }
+  }, [activeTab, loadSettings, loadKYCDocuments]);
 
   const sidebarItems = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -2140,8 +2274,11 @@ export default function AdminPanel() {
                   <TableCell>{user.email}</TableCell>
                   <TableCell className="capitalize">{user.role}</TableCell>
                   <TableCell>
-                    <Badge variant={user.verified ? 'default' : 'secondary'}>
-                      {user.verified ? 'verified' : 'pending'}
+                    <Badge 
+                      variant={user.verified ? 'default' : 'secondary'}
+                      className={user.verified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}
+                    >
+                      {user.verified ? 'KYC Approved' : 'Pending KYC'}
                     </Badge>
                   </TableCell>
                   <TableCell>{user.phone || '—'}</TableCell>
@@ -2409,7 +2546,7 @@ export default function AdminPanel() {
                     <img src={approval.user.avatar} alt={approval.user.name} />
                   </Avatar>
                   <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
+                    <div className="flex items-center space-x-2 mb-2 flex-wrap">
                       <span className="font-semibold flex items-center gap-1">
                         {approval.user.name}
                         {approval.isPremium && approval.type === 'project_posting' && (
@@ -2419,6 +2556,11 @@ export default function AdminPanel() {
                       <span className="text-gray-500">{approval.user.email}</span>
                       <Badge variant="outline" className="text-xs">
                         {approval.type === 'service_posting' ? 'SERVICE' : 'PROJECT'}
+                      </Badge>
+                      <Badge 
+                        className={`text-xs ${approval.isKycApproved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}
+                      >
+                        {approval.isKycApproved ? 'KYC ✓' : 'No KYC'}
                       </Badge>
                     </div>
                     <p className="text-gray-700 mb-2">{approval.content}</p>
@@ -2633,12 +2775,18 @@ export default function AdminPanel() {
                 </div>
               </TableCell>
               <TableCell>
-                <Badge variant={
-                  seller.banned ? 'destructive' :
-                  seller.status === 'active' ? 'default' :
-                  seller.status === 'suspended' ? 'destructive' : 'secondary'
-                }>
-                  {seller.banned ? 'banned' : seller.status}
+                <Badge 
+                  variant={
+                    seller.banned ? 'destructive' :
+                    seller.status === 'active' ? 'default' :
+                    seller.status === 'suspended' ? 'destructive' : 'secondary'
+                  }
+                  className={
+                    !seller.banned && seller.status === 'active' ? 'bg-green-100 text-green-800' :
+                    !seller.banned && seller.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''
+                  }
+                >
+                  {seller.banned ? 'Banned' : seller.status === 'active' ? 'Approved' : 'Pending KYC'}
                 </Badge>
               </TableCell>
               <TableCell>{seller.level}</TableCell>
@@ -2964,31 +3112,407 @@ export default function AdminPanel() {
     </div>
   );
 
-  const renderKYC = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">KYC Document Verification</h2>
-        <Button variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          Export Report
-        </Button>
-      </div>
+  const renderKYC = () => {
+    const filteredKycDocuments = kycDocuments.filter(doc => {
+      const matchesSearch = !kycSearchTerm ||
+        doc.user?.name?.toLowerCase().includes(kycSearchTerm.toLowerCase()) ||
+        doc.user?.email?.toLowerCase().includes(kycSearchTerm.toLowerCase());
 
-      {/* Placeholder KYC content - will be implemented with full functionality */}
-      <Card>
-        <CardContent className="p-8 text-center">
-          <Shield className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium mb-2">KYC Verification System</h3>
-          <p className="text-gray-600 mb-4">
-            Review and approve user identity verification submissions.
-          </p>
-          <p className="text-sm text-gray-500">
-            Full KYC management interface will be implemented here.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
+      const matchesStatus = kycStatusFilter === 'all' || doc.status === kycStatusFilter;
+      
+      const matchesUserType = kycUserTypeFilter === 'all' || 
+        (kycUserTypeFilter === 'seller' && doc.user?.role === 'provider') ||
+        (kycUserTypeFilter === 'buyer' && doc.user?.role === 'client');
+
+      return matchesSearch && matchesStatus && matchesUserType;
+    });
+
+    const kycStats = {
+      total: kycDocuments.length,
+      pending: kycDocuments.filter(d => d.status === 'pending').length,
+      approved: kycDocuments.filter(d => d.status === 'approved').length,
+      rejected: kycDocuments.filter(d => d.status === 'rejected').length,
+    };
+
+    const statusColors: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      approved: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800',
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold">KYC Document Verification</h2>
+            <p className="text-gray-600">Review and approve user identity verification submissions.</p>
+          </div>
+          <div className="flex space-x-2">
+            <Button variant="outline" onClick={() => loadKYCDocuments()}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <FileText className="h-8 w-8 text-blue-500 mr-3" />
+                <div>
+                  <p className="text-2xl font-bold">{kycStats.total}</p>
+                  <p className="text-sm text-gray-600">Total Submissions</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <AlertTriangle className="h-8 w-8 text-yellow-500 mr-3" />
+                <div>
+                  <p className="text-2xl font-bold">{kycStats.pending}</p>
+                  <p className="text-sm text-gray-600">Pending Review</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <CheckCircle className="h-8 w-8 text-green-500 mr-3" />
+                <div>
+                  <p className="text-2xl font-bold">{kycStats.approved}</p>
+                  <p className="text-sm text-gray-600">Approved</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <XCircle className="h-8 w-8 text-red-500 mr-3" />
+                <div>
+                  <p className="text-2xl font-bold">{kycStats.rejected}</p>
+                  <p className="text-sm text-gray-600">Rejected</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <Label htmlFor="kyc-search">Search users</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="kyc-search"
+                    placeholder="Search by name or email..."
+                    value={kycSearchTerm}
+                    onChange={(e) => setKycSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label>Filter by status</Label>
+                <Select value={kycStatusFilter} onValueChange={setKycStatusFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Filter by user type</Label>
+                <Select value={kycUserTypeFilter} onValueChange={setKycUserTypeFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Users</SelectItem>
+                    <SelectItem value="seller">Sellers Only</SelectItem>
+                    <SelectItem value="buyer">Buyers Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* KYC Documents List */}
+        <div className="space-y-4">
+          {kycLoading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p>Loading KYC documents...</p>
+            </div>
+          ) : filteredKycDocuments.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <Shield className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium mb-2">No KYC submissions found</h3>
+                <p className="text-gray-600">
+                  {kycSearchTerm || kycStatusFilter !== 'all' || kycUserTypeFilter !== 'all'
+                    ? 'Try adjusting your filters'
+                    : 'No KYC verification requests have been submitted yet.'}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            filteredKycDocuments.map((doc) => (
+              <Card key={doc.id}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <Avatar className="h-10 w-10">
+                        <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${doc.user_id}`} alt={doc.user?.name || 'User'} />
+                      </Avatar>
+                      <div>
+                        <h3 className="font-medium">{doc.user?.name || 'Unknown User'}</h3>
+                        <p className="text-sm text-gray-600">{doc.user?.email}</p>
+                        <p className="text-xs text-gray-500 capitalize">{doc.user?.role === 'provider' ? 'Seller' : 'Buyer'}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-4">
+                      <div className="text-right hidden md:block">
+                        <p className="text-sm font-medium">{doc.document_type.replace('_', ' ').toUpperCase()}</p>
+                        <p className="text-xs text-gray-500">{new Date(doc.submitted_at || doc.created_at).toLocaleDateString()}</p>
+                      </div>
+
+                      <Badge className={statusColors[doc.status]}>
+                        {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                      </Badge>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedKycDocument(doc);
+                          setKycReviewDialogOpen(true);
+                          setKycAction('approve');
+                          setKycRejectionReason('');
+                        }}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        Review
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+
+        {/* KYC Review Dialog */}
+        <Dialog open={kycReviewDialogOpen} onOpenChange={setKycReviewDialogOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>KYC Document Review</DialogTitle>
+              <DialogDescription>
+                Review the submitted documents and approve or reject the verification request.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedKycDocument && (
+              <div className="space-y-6">
+                {/* User Info */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-3">
+                      <Avatar className="h-12 w-12">
+                        <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedKycDocument.user_id}`} alt={selectedKycDocument.user?.name || 'User'} />
+                      </Avatar>
+                      <div>
+                        <p className="font-medium">{selectedKycDocument.user?.name || 'Unknown User'}</p>
+                        <p className="text-sm text-gray-600">{selectedKycDocument.user?.email}</p>
+                        <Badge variant="secondary" className="mt-1">
+                          {selectedKycDocument.user?.role === 'provider' ? 'Seller' : 'Buyer'}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Document Info */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <Label className="text-xs text-gray-500">Document Type</Label>
+                        <p className="font-medium">
+                          {selectedKycDocument.document_type.replace('_', ' ').toUpperCase()}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-500">Submitted</Label>
+                        <p className="font-medium">
+                          {new Date(selectedKycDocument.submitted_at || selectedKycDocument.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-500">Current Status</Label>
+                        <Badge className={statusColors[selectedKycDocument.status]}>
+                          {selectedKycDocument.status.charAt(0).toUpperCase() + selectedKycDocument.status.slice(1)}
+                        </Badge>
+                      </div>
+                      {selectedKycDocument.reviewed_at && (
+                        <div>
+                          <Label className="text-xs text-gray-500">Reviewed At</Label>
+                          <p className="font-medium">
+                            {new Date(selectedKycDocument.reviewed_at).toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    {selectedKycDocument.rejection_reason && (
+                      <div className="mt-4">
+                        <Label className="text-xs text-gray-500">Previous Rejection Reason</Label>
+                        <p className="text-sm text-red-600">{selectedKycDocument.rejection_reason}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Document Images */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Front of Document</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {selectedKycDocument.front_document_url ? (
+                        <img
+                          src={selectedKycDocument.front_document_url}
+                          alt="Front of document"
+                          className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => window.open(selectedKycDocument.front_document_url, '_blank')}
+                        />
+                      ) : (
+                        <div className="h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+                          <p className="text-gray-500">No front document uploaded</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {selectedKycDocument.back_document_url && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Back of Document</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <img
+                          src={selectedKycDocument.back_document_url}
+                          alt="Back of document"
+                          className="w-full rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => window.open(selectedKycDocument.back_document_url!, '_blank')}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {selectedKycDocument.selfie_url && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Selfie Verification</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <img
+                          src={selectedKycDocument.selfie_url}
+                          alt="Selfie"
+                          className="w-full max-w-xs mx-auto rounded-lg border cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => window.open(selectedKycDocument.selfie_url!, '_blank')}
+                        />
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Review Actions */}
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="space-y-4">
+                      <div className="flex space-x-2">
+                        <Button
+                          onClick={() => setKycAction('approve')}
+                          variant={kycAction === 'approve' ? 'default' : 'outline'}
+                          className={`flex-1 ${kycAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </Button>
+                        <Button
+                          onClick={() => setKycAction('reject')}
+                          variant={kycAction === 'reject' ? 'destructive' : 'outline'}
+                          className="flex-1"
+                        >
+                          <XCircle className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      </div>
+
+                      {kycAction === 'reject' && (
+                        <div>
+                          <Label htmlFor="kyc-rejection-reason">Rejection Reason</Label>
+                          <Textarea
+                            id="kyc-rejection-reason"
+                            placeholder="Please provide a reason for rejection..."
+                            value={kycRejectionReason}
+                            onChange={(e) => setKycRejectionReason(e.target.value)}
+                            rows={3}
+                          />
+                        </div>
+                      )}
+
+                      <Button
+                        onClick={handleKYCReview}
+                        disabled={kycProcessing || (kycAction === 'reject' && !kycRejectionReason.trim())}
+                        className={`w-full ${kycAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                      >
+                        {kycProcessing ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Processing...
+                          </>
+                        ) : (
+                          `Confirm ${kycAction === 'approve' ? 'Approval' : 'Rejection'}`
+                        )}
+                      </Button>
+
+                      {kycAction === 'approve' && (
+                        <p className="text-xs text-gray-500 text-center">
+                          Approving will also mark the user as verified on the platform.
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  };
 
   const renderCreatedOrders = () => (
     <div className="space-y-6">

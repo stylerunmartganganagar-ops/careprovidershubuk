@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const from = location.state?.from?.pathname || '/';
 
@@ -22,6 +24,7 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setResetMessage(null);
 
     try {
       console.log('Attempting login...');
@@ -35,6 +38,27 @@ export default function LoginPage() {
       console.error('Login failed:', error);
       setError(error instanceof Error ? error.message : 'Login failed. Please try again.');
       setIsLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    setError(null);
+    setResetMessage(null);
+
+    if (!email) {
+      setError('Please enter your email address to reset your password.');
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+      await auth.resetPassword(email);
+      setResetMessage('If an account exists with this email, a password reset link has been sent.');
+    } catch (err) {
+      console.error('Password reset request failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to send password reset email. Please try again.');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -118,6 +142,12 @@ export default function LoginPage() {
                 </Alert>
               )}
 
+              {resetMessage && !error && (
+                <Alert className="mb-6">
+                  <AlertDescription>{resetMessage}</AlertDescription>
+                </Alert>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -153,6 +183,17 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     disabled={isLoading}
                   />
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleResetPassword}
+                    className="text-sm text-blue-600 hover:text-blue-500"
+                    disabled={isLoading || resetLoading}
+                  >
+                    {resetLoading ? 'Sending reset link...' : 'Forgot your password?'}
+                  </button>
                 </div>
 
                 <Button

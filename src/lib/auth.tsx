@@ -30,6 +30,7 @@ interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, role?: 'provider' | 'client' | 'admin') => Promise<void>;
   signup: (email: string, password: string, name: string, role?: 'provider' | 'client' | 'admin') => Promise<{ success: boolean; message: string; requiresConfirmation?: boolean }>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
   loading: boolean;
@@ -336,6 +337,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const resetPassword = async (email: string) => {
+    console.log('Reset password requested for:', email);
+    try {
+      const redirectTo = `${window.location.origin}/auth/reset-password`;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+      if (error) throw error;
+
+      console.log('Password reset email sent');
+    } catch (error) {
+      console.error('Reset password error:', error);
+      throw error;
+    }
+  };
+
   const login = async (email: string, password: string, role?: 'provider' | 'client') => {
     console.log('Login called for:', email);
     try {
@@ -384,6 +400,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     login,
     signup,
+    resetPassword,
     logout,
     isAuthenticated: !!user,
     loading,

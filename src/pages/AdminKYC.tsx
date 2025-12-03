@@ -103,6 +103,18 @@ export default function AdminKYC() {
 
       if (error) throw error;
 
+      // If approved, also update the user's is_verified status
+      if (action === 'approve') {
+        const { error: userError } = await (supabase
+          .from('users')
+          .update({ is_verified: true })
+          .eq('id', selectedDocument.user_id) as any);
+        
+        if (userError) {
+          console.error('Error updating user verification status:', userError);
+        }
+      }
+
       // Update local state
       setKycDocuments(prev =>
         prev.map(doc =>
@@ -115,6 +127,9 @@ export default function AdminKYC() {
       setReviewDialog(false);
       setSelectedDocument(null);
       setRejectionReason('');
+      
+      // Reload to get fresh data
+      loadKYCDocuments();
     } catch (error) {
       console.error('Error updating KYC status:', error);
     } finally {

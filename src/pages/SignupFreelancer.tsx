@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
-import type { Database } from '../lib/database.types';
+import type { Database } from '../lib/supabase';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -30,6 +30,8 @@ export default function SignupFreelancer() {
   const [isWaitingForConfirmation, setIsWaitingForConfirmation] = useState(false);
   const [signupEmail, setSignupEmail] = useState('');
   const [signupData, setSignupData] = useState<any>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Handle automatic redirection when email is confirmed
   useEffect(() => {
@@ -80,6 +82,7 @@ export default function SignupFreelancer() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setResetMessage(null);
 
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
@@ -128,6 +131,27 @@ export default function SignupFreelancer() {
       console.error('Freelancer registration failed:', error);
       setIsRegistering(false);
       setError(error instanceof Error ? error.message : 'Registration failed. Please try again or contact support.');
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setResetMessage(null);
+
+    if (!formData.email) {
+      setError('Please enter your email address to reset your password.');
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+      await auth.resetPassword(formData.email);
+      setResetMessage('If an account exists with this email, a password reset link has been sent.');
+    } catch (err) {
+      console.error('Password reset request failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to send password reset email. Please try again.');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -195,6 +219,12 @@ export default function SignupFreelancer() {
                 <Alert className="mb-6" variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {resetMessage && !error && (
+                <Alert className="mb-6">
+                  <AlertDescription>{resetMessage}</AlertDescription>
                 </Alert>
               )}
 
@@ -355,12 +385,22 @@ export default function SignupFreelancer() {
               </form>
 
               <div className="mt-6 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Already have an account?{' '}
-                  <a href="/login" className="text-primary hover:underline">
-                    Sign in here
-                  </a>
-                </p>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Already have an account?{' '}
+                    <a href="/login" className="text-primary hover:underline">
+                      Sign in here
+                    </a>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-xs text-primary hover:underline"
+                    disabled={isRegistering || resetLoading}
+                  >
+                    {resetLoading ? 'Sending reset link...' : 'Forgot your password?'}
+                  </button>
+                </div>
               </div>
             </>
           )}

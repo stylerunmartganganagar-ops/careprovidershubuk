@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import {
@@ -8,6 +9,7 @@ import {
   NavigationMenuList,
   NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
+import { Menu, X } from "lucide-react";
 
 const serviceCategories = [
   { name: "Regulatory & Legal", href: "#regulatory" },
@@ -19,6 +21,8 @@ const serviceCategories = [
 ];
 
 export const Navigation = () => {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
     <header className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
       <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -63,11 +67,50 @@ export const Navigation = () => {
           <Button variant="ghost" className="hidden md:inline-flex" asChild>
             <Link to="/login">Login</Link>
           </Button>
-          <Button className="bg-primary hover:bg-primary/90" asChild>
+          <Button className="hidden lg:inline-flex bg-primary hover:bg-primary/90" asChild>
             <Link to="/signup/freelancer">Join as a Professional</Link>
           </Button>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-md p-2 text-foreground lg:hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+            onClick={() => setMobileOpen((prev) => !prev)}
+            aria-label="Toggle navigation menu"
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </nav>
+
+      {mobileOpen && (
+        <div className="lg:hidden border-t bg-background">
+          <div className="container mx-auto px-4 py-3 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {serviceCategories.map((category) => (
+                <a
+                  key={category.name}
+                  href={category.href}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  {category.name}
+                </a>
+              ))}
+            </div>
+            <div className="flex flex-col space-y-2">
+              <Button variant="outline" className="w-full" asChild>
+                <Link to="/login" onClick={() => setMobileOpen(false)}>
+                  Login
+                </Link>
+              </Button>
+              <Button className="w-full bg-primary hover:bg-primary/90" asChild>
+                <Link to="/signup/freelancer" onClick={() => setMobileOpen(false)}>
+                  Join as a Professional
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

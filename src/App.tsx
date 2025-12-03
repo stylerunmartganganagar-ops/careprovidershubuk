@@ -46,6 +46,7 @@ import SellerDashboard from "./pages/SellerDashboard";
 import AdminPanel from "./pages/AdminPanel";
 import AuthCallback from "./pages/AuthCallback";
 import VerificationSuccess from "./pages/VerificationSuccess";
+import ResetPassword from "./pages/ResetPassword";
 import AdminSignup from "./pages/AdminSignup";
 import ServiceDetail from "./pages/ServiceDetail";
 import Home from "./pages/Home";
@@ -80,6 +81,7 @@ const AppRoutes = () => {
                 <Route path="/" element={<Index />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/auth/verification-success" element={<VerificationSuccess />} />
+                <Route path="/auth/reset-password" element={<ResetPassword />} />
                 <Route path="/admin/signup" element={<AdminSignup />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup/freelancer" element={<SignupFreelancer />} />
