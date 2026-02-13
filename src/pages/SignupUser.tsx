@@ -45,6 +45,7 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [isWaitingForConfirmation, setIsWaitingForConfirmation] = useState(false);
   const [signupEmail, setSignupEmail] = useState('');
+  const [hasInitialService, setHasInitialService] = useState(false);
   const [formData, setFormData] = useState<RegistrationData>({
     service: initialService || '',
     urgency: '',
@@ -62,10 +63,16 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
   // Reset form when modal opens with new initial data
   useEffect(() => {
     if (open) {
-      setCurrentStep(1);
       setIsWaitingForConfirmation(false);
       setIsSigningUp(false);
       setSignupEmail('');
+      
+      // If service is already selected, start from step 2, otherwise step 1
+      const hasInitial = !!initialService;
+      setHasInitialService(hasInitial);
+      const startStep = hasInitial ? 2 : 1;
+      setCurrentStep(startStep);
+      
       setFormData({
         service: initialService || '',
         urgency: '',
@@ -147,8 +154,15 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
   };
 
   const prevStep = () => {
+    // If we have an initial service and we're going back from step 2, skip to step 1 (which is actually step 2 in UI)
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      const newStep = currentStep - 1;
+      // If we have an initial service and new step would be 1, skip to step 2
+      if (hasInitialService && newStep === 1) {
+        setCurrentStep(2); // Stay at step 2 (timeline) since step 1 is not needed
+      } else {
+        setCurrentStep(newStep);
+      }
     }
   };
 
@@ -219,77 +233,42 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
 
             {!categoriesLoading && !categoriesError && categories.length > 0 && (
               <div className="space-y-4">
-                {categories.map((category) => (
-                  <div key={category.id} className="space-y-2">
-                    <h4 className="text-sm font-semibold text-gray-800">
-                      {category.name}
-                    </h4>
-                    <div className="grid grid-cols-1 gap-3">
-                      {category.subcategories && category.subcategories.length > 0 ? (
-                        category.subcategories.map((sub) => {
-                          const value = sub.name;
-                          const isSelected = formData.service === value;
-                          return (
-                            <div
-                              key={sub.id}
-                              className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                                isSelected
-                                  ? 'border-primary bg-primary/5'
-                                  : 'border-gray-200 hover:border-primary/50'
-                              }`}
-                              onClick={() => handleChange('service', value)}
-                            >
-                              <div className="flex items-center space-x-3">
-                                <div className={`w-4 h-4 rounded-full border-2 ${
-                                  isSelected
-                                    ? 'border-primary bg-primary'
-                                    : 'border-gray-300'
-                                }`}>
-                                  {isSelected && (
-                                    <div className="w-full h-full rounded-full bg-white scale-50"></div>
-                                  )}
-                                </div>
-                                <div>
-                                  <div className="font-medium">{sub.name}</div>
-                                  {sub.description && (
-                                    <div className="text-sm text-muted-foreground">{sub.description}</div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div
-                          className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                            formData.service === category.name
-                              ? 'border-primary bg-primary/5'
-                              : 'border-gray-200 hover:border-primary/50'
-                          }`}
-                          onClick={() => handleChange('service', category.name)}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className={`w-4 h-4 rounded-full border-2 ${
-                              formData.service === category.name
-                                ? 'border-primary bg-primary'
-                                : 'border-gray-300'
-                            }`}>
-                              {formData.service === category.name && (
-                                <div className="w-full h-full rounded-full bg-white scale-50"></div>
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-medium">{category.name}</div>
-                              {category.description && (
-                                <div className="text-sm text-muted-foreground">{category.description}</div>
-                              )}
-                            </div>
+                {categories.map((category) => {
+                  // Skip categories that don't make sense for buyers
+                  if (category.name === 'Buyers') return null;
+                  
+                  const value = category.name;
+                  const isSelected = formData.service === value;
+                  return (
+                    <div
+                      key={category.id}
+                      className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        isSelected
+                          ? 'border-primary bg-primary/5'
+                          : 'border-gray-200 hover:border-primary/50'
+                      }`}
+                      onClick={() => handleChange('service', value)}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-4 h-4 rounded-full border-2 ${
+                          isSelected
+                            ? 'border-primary bg-primary'
+                            : 'border-gray-300'
+                        }`}>
+                          {isSelected && (
+                            <div className="w-full h-full rounded-full bg-white scale-50"></div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium">{category.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {category.subcategories?.length || 0} services available
                           </div>
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -333,7 +312,7 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
                       <div className="text-sm text-muted-foreground">{option.desc}</div>
                     </div>
                     {formData.urgency === option.value && (
-                      <div className="ml-auto w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+                      <div className="ml-auto w-6 h-6 bg-primary rounded-full flex items-center justify-center md:hidden">
                         <div className="w-2 h-2 bg-white rounded-full"></div>
                       </div>
                     )}
@@ -377,7 +356,7 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
                       <div className="text-sm text-muted-foreground">{budget.desc}</div>
                     </div>
                     {formData.budget === budget.value && (
-                      <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+                      <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center md:hidden">
                         <div className="w-2 h-2 bg-white rounded-full"></div>
                       </div>
                     )}
@@ -502,14 +481,14 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="!w-[1280px] !max-w-[1280px] max-h-[85vh] overflow-y-auto" style={{ width: '1280px !important', maxWidth: '1280px !important' }}>
         <DialogHeader>
           <DialogTitle className="text-center">
             {currentStep < 5 ? (
               <>
                 Join Providers Hub
                 <div className="text-sm font-normal text-muted-foreground mt-2">
-                  Step {currentStep} of 4
+                  Step {hasInitialService ? currentStep - 1 : currentStep} of {hasInitialService ? 3 : 4}
                 </div>
               </>
             ) : (

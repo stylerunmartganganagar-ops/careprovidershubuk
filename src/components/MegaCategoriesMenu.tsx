@@ -1,19 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useCategories } from '../hooks/useCategories';
+import { Button } from './ui/button';
 
 export function MegaCategoriesMenu() {
   const { categories, loading, error } = useCategories();
   const navigate = useNavigate();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Keep a stable list so layout does not jitter and ensure every category is visible
   const displayCategories = useMemo(() => {
     return categories || [];
   }, [categories]);
+
+  const categoriesPerPage = 8;
+  const visibleCategories = displayCategories.slice(currentIndex, currentIndex + categoriesPerPage);
+  const canGoLeft = currentIndex > 0;
+  const canGoRight = currentIndex + categoriesPerPage < displayCategories.length;
+
+  const goLeft = () => {
+    if (canGoLeft) {
+      setCurrentIndex(Math.max(0, currentIndex - categoriesPerPage));
+    }
+  };
+
+  const goRight = () => {
+    if (canGoRight) {
+      setCurrentIndex(currentIndex + categoriesPerPage);
+    }
+  };
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
@@ -69,21 +88,48 @@ export function MegaCategoriesMenu() {
     >
       <div className="container mx-auto px-4">
         {/* Top row category strip */}
-        <div className="flex items-center gap-6 overflow-x-auto py-3 text-sm">
-          {displayCategories.map((cat) => (
-            <button
-              key={cat.id}
-              className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700 ${
-                activeId === cat.id && open ? 'text-blue-700' : 'text-gray-800'
-              }`}
-              onMouseEnter={() => openCategory(cat.id)}
-              onFocus={() => openCategory(cat.id)}
-              onClick={() => goTo(cat.name)}
+        <div className="flex items-center gap-2 py-3 text-sm">
+          {/* Left Arrow */}
+          {canGoLeft && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-shrink-0"
+              onClick={goLeft}
             >
-              {cat.name}
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-          ))}
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          )}
+          
+          {/* Categories - No Scrolling, Single Line */}
+          <div className="flex items-center gap-6 flex-1 overflow-hidden">
+            {visibleCategories.map((cat) => (
+              <button
+                key={cat.id}
+                className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700 flex-shrink-0 ${
+                  activeId === cat.id && open ? 'text-blue-700' : 'text-gray-800'
+                }`}
+                onMouseEnter={() => openCategory(cat.id)}
+                onFocus={() => openCategory(cat.id)}
+                onClick={() => goTo(cat.name)}
+              >
+                {cat.name}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            ))}
+          </div>
+          
+          {/* Right Arrow */}
+          {canGoRight && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-shrink-0"
+              onClick={goRight}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
 

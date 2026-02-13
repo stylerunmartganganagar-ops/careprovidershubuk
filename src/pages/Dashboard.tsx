@@ -174,6 +174,19 @@ export default function DashboardPage() {
   const shuffledServices = useMemo(() => dailyShuffle(services), [services]);
   const { isPro } = useIsPro(user?.id);
 
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check screen size for responsive View All buttons
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
+
   const justForYouRef = useRef<HTMLDivElement>(null);
   const featuredRef = useRef<HTMLDivElement>(null);
   const basedOnSearchesRef = useRef<HTMLDivElement>(null);
@@ -516,6 +529,29 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {/* Quick Actions */}
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {quickActions.map((action, index) => {
+              const IconComponent = action.icon;
+              return (
+                <Link key={index} to={action.href}>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow">
+                    <CardContent className="p-4 text-center">
+                      <div className={`w-12 h-12 ${action.color} rounded-lg flex items-center justify-center mx-auto mb-3`}>
+                        <IconComponent className="h-6 w-6 text-white" />
+                      </div>
+                      <h3 className="font-semibold text-sm mb-1">{action.title}</h3>
+                      <p className="text-xs text-gray-600">{action.description}</p>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
         {/* Stats Overview */}
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -579,7 +615,7 @@ export default function DashboardPage() {
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Service Carousels */}
-          <div className="lg:col-span-2 space-y-8">
+          <div className={`${projects.length === 0 ? 'lg:col-span-3' : 'lg:col-span-2'} space-y-8`}>
             {/* Featured Services Carousel (moved above) */}
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -589,14 +625,16 @@ export default function DashboardPage() {
                     Handpicked top-rated healthcare service providers
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/searchresults?filter=featured')}
-                  className="self-start sm:self-auto"
-                >
-                  View All
-                </Button>
+                {(featuredServices.length > (isMobile ? 2 : 6)) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/searchresults?filter=featured')}
+                    className="self-start sm:self-auto"
+                  >
+                    View All
+                  </Button>
+                )}
               </div>
               {servicesLoading ? (
                 <div className="text-center py-8 text-gray-500">
@@ -649,14 +687,16 @@ export default function DashboardPage() {
                     Personalized recommendations based on your activity
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/searchresults?filter=personalized')}
-                  className="self-start sm:self-auto"
-                >
-                  View All
-                </Button>
+                {(justForYouServices.length > (isMobile ? 2 : 6)) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/searchresults?filter=personalized')}
+                    className="self-start sm:self-auto"
+                  >
+                    View All
+                  </Button>
+                )}
               </div>
               {servicesLoading ? (
                 <div className="text-center py-8 text-gray-500">
@@ -704,14 +744,16 @@ export default function DashboardPage() {
                     More services related to your recent searches
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/searchresults?filter=searches')}
-                  className="self-start sm:self-auto"
-                >
-                  View All
-                </Button>
+                {(basedOnSearchesServices.length > (isMobile ? 2 : 6)) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate('/searchresults?filter=searches')}
+                    className="self-start sm:self-auto"
+                  >
+                    View All
+                  </Button>
+                )}
               </div>
               {servicesLoading ? (
                 <div className="text-center py-8 text-gray-500">
@@ -754,6 +796,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Right Column - Profile Completion, My Projects & Quick Actions */}
+          {projects.length > 0 && (
           <div className="space-y-8">
             {/* Profile Completion (Client) */}
             <section>
@@ -869,30 +912,8 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             </section>
-
-            {/* Quick Actions */}
-            <section>
-              <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
-              <div className="grid grid-cols-2 gap-3">
-                {quickActions.map((action, index) => {
-                  const IconComponent = action.icon;
-                  return (
-                    <Link key={index} to={action.href}>
-                      <Card className="cursor-pointer hover:shadow-md transition-shadow">
-                        <CardContent className="p-4 text-center">
-                          <div className={`w-12 h-12 ${action.color} rounded-lg flex items-center justify-center mx-auto mb-3`}>
-                            <IconComponent className="h-6 w-6 text-white" />
-                          </div>
-                          <h3 className="font-semibold text-sm mb-1">{action.title}</h3>
-                          <p className="text-xs text-gray-600">{action.description}</p>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  );
-                })}
-              </div>
-            </section>
           </div>
+          )}
         </div>
       </main>
       <Footer />

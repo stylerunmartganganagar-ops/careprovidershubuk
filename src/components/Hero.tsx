@@ -109,18 +109,12 @@ export const Hero = () => {
                       }
                     />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60 overflow-y-auto scrollbar-hide">
                     {categoryGroups.map((category) => (
                       <SelectGroup key={category.id}>
-                        <SelectLabel>{category.name}</SelectLabel>
                         <SelectItem value={category.name}>
-                          {`All ${category.name}`}
+                          {category.name}
                         </SelectItem>
-                        {category.subcategories.map((sub) => (
-                          <SelectItem key={sub.id} value={sub.name}>
-                            {sub.name}
-                          </SelectItem>
-                        ))}
                       </SelectGroup>
                     ))}
                   </SelectContent>

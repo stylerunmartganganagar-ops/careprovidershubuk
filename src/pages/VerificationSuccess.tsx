@@ -33,10 +33,22 @@ export default function VerificationSuccess() {
             console.log('OTP verified successfully:', data);
             setVerificationStatus('success');
 
-            // Redirect to auth callback which will handle the login and redirect to dashboard
+            // verifyOtp already created a session — redirect directly to dashboard
+            const session = data?.session;
+            const userRole = session?.user?.user_metadata?.role || 'client';
+            const userId = session?.user?.id;
+
             setTimeout(() => {
-              navigate('/auth/callback', { replace: true });
-            }, 2000);
+              if (userId) {
+                const redirectPath = userRole === 'provider'
+                  ? `/home/sellers/${userId}`
+                  : `/home/${userId}`;
+                navigate(redirectPath, { replace: true });
+              } else {
+                // Fallback: session might already be picked up by auth listener
+                navigate('/', { replace: true });
+              }
+            }, 1500);
           }
         } else {
           setVerificationStatus('error');

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { DashboardHeader } from '../components/DashboardHeader';
 import { Footer } from '../components/Footer';
 import { Avatar } from '../components/ui/avatar';
@@ -1218,9 +1218,13 @@ export default function MessagesPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start">
-                        <p className={`text-sm font-medium truncate ${conversation.hasNewMessage ? 'text-blue-600' : ''}`}>
+                        <Link 
+                          to={`/user-profile?id=${conversation.partner.id}`}
+                          className={`text-sm font-medium truncate hover:text-blue-600 transition-colors ${conversation.hasNewMessage ? 'text-blue-600' : ''}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           @{conversation.partner.username}
-                        </p>
+                        </Link>
                         <span className="text-xs text-muted-foreground">
                           {conversation.partner.lastMessageTime ?
                             new Date(conversation.partner.lastMessageTime).toLocaleDateString() : ''}
@@ -1250,7 +1254,12 @@ export default function MessagesPage() {
                       <img src={partnerInfo?.avatar} alt={getDisplayUsername()} />
                     </Avatar>
                     <div>
-                      <span className="font-medium">@{getDisplayUsername()}</span>
+                      <Link 
+                        to={`/user-profile?id=${partnerInfo?.id}`}
+                        className="font-medium hover:text-blue-600 transition-colors"
+                      >
+                        @{getDisplayUsername()}
+                      </Link>
                       <div className="text-xs text-gray-500 capitalize">{partnerInfo?.role}</div>
                     </div>
                   </div>
