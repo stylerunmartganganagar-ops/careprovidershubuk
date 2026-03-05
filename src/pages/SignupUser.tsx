@@ -11,10 +11,12 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '../components/ui/dialog';
 import { useAuth } from '../lib/auth.tsx';
 import { supabase } from '../lib/supabase';
 import { useCategories } from '../hooks/useCategories';
+import { saveUserPreferences } from '../hooks/useUserPreferences';
 
 interface RegistrationData {
   service: string;
@@ -66,13 +68,13 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
       setIsWaitingForConfirmation(false);
       setIsSigningUp(false);
       setSignupEmail('');
-      
+
       // If service is already selected, start from step 2, otherwise step 1
       const hasInitial = !!initialService;
       setHasInitialService(hasInitial);
       const startStep = hasInitial ? 2 : 1;
       setCurrentStep(startStep);
-      
+
       setFormData({
         service: initialService || '',
         urgency: '',
@@ -116,10 +118,26 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
   useEffect(() => {
     if (auth.isAuthenticated && auth.user && isWaitingForConfirmation) {
       console.log('User authenticated after verification, closing signup modal');
+
+      // Save user preferences from signup form
+      const userId = auth.user.id;
+      if (userId && (formData.service || formData.urgency || formData.budget || formData.location)) {
+        saveUserPreferences(userId, {
+          preferred_service: formData.service || undefined,
+          preferred_urgency: formData.urgency || undefined,
+          preferred_budget: formData.budget || undefined,
+          preferred_location: formData.location || undefined,
+        }).then(() => {
+          console.log('User preferences saved successfully after email confirmation');
+        }).catch((err) => {
+          console.error('Failed to save user preferences:', err);
+        });
+      }
+
       setIsWaitingForConfirmation(false);
       onOpenChange(false);
     }
-  }, [auth.isAuthenticated, auth.user, isWaitingForConfirmation, onOpenChange]);
+  }, [auth.isAuthenticated, auth.user, isWaitingForConfirmation, onOpenChange, formData]);
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -196,7 +214,23 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
           setCurrentStep(5); // Show confirmation waiting step
         } else {
           console.log('No confirmation required, closing modal');
-          // No confirmation required - close modal immediately
+
+          // Save preferences immediately for non-confirmation flows
+          try {
+            const { data: { user: currentUser } } = await supabase.auth.getUser();
+            if (currentUser?.id) {
+              await saveUserPreferences(currentUser.id, {
+                preferred_service: formData.service || undefined,
+                preferred_urgency: formData.urgency || undefined,
+                preferred_budget: formData.budget || undefined,
+                preferred_location: formData.location || undefined,
+              });
+              console.log('User preferences saved successfully');
+            }
+          } catch (prefErr) {
+            console.error('Failed to save preferences:', prefErr);
+          }
+
           onOpenChange(false);
           // Navigation will be handled by auth state change
         }
@@ -212,11 +246,11 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
     switch (currentStep) {
       case 1:
         return (
-          <div className="space-y-6">
+          <div className="space-y-3 sm:space-y-4">
             <div>
-              <h3 className="text-lg font-semibold text-center mb-2">What service do you need?</h3>
-              <p className="text-sm text-muted-foreground text-center mb-6">
-                Select the primary service you're looking for
+              <h3 className="text-base sm:text-lg font-bold text-center mb-1">What service do you need?</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground text-center mb-3 sm:mb-4">
+                Select the primary service
               </p>
             </div>
             {categoriesLoading && (
@@ -232,37 +266,32 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
             )}
 
             {!categoriesLoading && !categoriesError && categories.length > 0 && (
-              <div className="space-y-4">
+              <div className="space-y-1.5 sm:space-y-2">
                 {categories.map((category) => {
                   // Skip categories that don't make sense for buyers
                   if (category.name === 'Buyers') return null;
-                  
+
                   const value = category.name;
                   const isSelected = formData.service === value;
                   return (
                     <div
                       key={category.id}
-                      className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                        isSelected
-                          ? 'border-primary bg-primary/5'
-                          : 'border-gray-200 hover:border-primary/50'
-                      }`}
+                      className={`p-2 sm:p-3 border-[1.5px] rounded-xl cursor-pointer transition-all ${isSelected
+                        ? 'border-primary bg-primary/5'
+                        : 'border-gray-100 hover:border-primary/50'
+                        }`}
                       onClick={() => handleChange('service', value)}
                     >
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-4 h-4 rounded-full border-2 ${
-                          isSelected
-                            ? 'border-primary bg-primary'
-                            : 'border-gray-300'
-                        }`}>
-                          {isSelected && (
-                            <div className="w-full h-full rounded-full bg-white scale-50"></div>
-                          )}
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border ${isSelected
+                          ? 'border-primary bg-primary'
+                          : 'border-gray-300'
+                          }`}>
                         </div>
                         <div>
-                          <div className="font-medium">{category.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {category.subcategories?.length || 0} services available
+                          <div className="font-bold text-[12px] sm:text-sm leading-tight">{category.name}</div>
+                          <div className="text-[9px] sm:text-xs text-muted-foreground leading-tight">
+                            {category.subcategories?.length || 0} services
                           </div>
                         </div>
                       </div>
@@ -282,40 +311,34 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
 
       case 2:
         return (
-          <div className="space-y-6">
+          <div className="space-y-3 sm:space-y-4">
             <div>
-              <h3 className="text-lg font-semibold text-center mb-2">When do you need this service?</h3>
-              <p className="text-sm text-muted-foreground text-center mb-6">
+              <h3 className="text-sm sm:text-lg font-bold text-center mb-1">When do you need this service?</h3>
+              <p className="text-[10px] sm:text-sm text-muted-foreground text-center mb-3 sm:mb-4">
                 How soon are you looking to get started?
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-1 gap-1.5 sm:gap-2">
               {[
-                { value: "asap", label: "ASAP", desc: "Within the next week - urgent need", icon: "🚨" },
-                { value: "soon", label: "Soon", desc: "Within the next month", icon: "📅" },
-                { value: "flexible", label: "Flexible", desc: "No specific timeline", icon: "🕐" },
+                { value: "asap", label: "ASAP", desc: "Within the week", icon: "🚨" },
+                { value: "soon", label: "Soon", desc: "Next month", icon: "📅" },
+                { value: "flexible", label: "Flexible", desc: "No timeline", icon: "🕐" },
               ].map((option) => (
                 <div
                   key={option.value}
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                    formData.urgency === option.value
-                      ? 'border-primary bg-primary/5'
-                      : 'border-gray-200 hover:border-primary/50'
-                  }`}
+                  className={`p-2 sm:p-3 border-[1.5px] rounded-xl cursor-pointer transition-all ${formData.urgency === option.value
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-100 hover:border-primary/50'
+                    }`}
                   onClick={() => handleChange('urgency', option.value)}
                 >
                   <div className="flex items-center space-x-3">
-                    <span className="text-2xl">{option.icon}</span>
-                    <div>
-                      <div className="font-medium">{option.label}</div>
-                      <div className="text-sm text-muted-foreground">{option.desc}</div>
+                    <span className="text-base sm:text-lg">{option.icon}</span>
+                    <div className="flex-1">
+                      <div className="font-bold text-[12px] sm:text-sm leading-tight">{option.label}</div>
+                      <div className="text-[9px] sm:text-xs text-muted-foreground leading-tight">{option.desc}</div>
                     </div>
-                    {formData.urgency === option.value && (
-                      <div className="ml-auto w-6 h-6 bg-primary rounded-full flex items-center justify-center md:hidden">
-                        <div className="w-2 h-2 bg-white rounded-full"></div>
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}
@@ -325,41 +348,35 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
 
       case 3:
         return (
-          <div className="space-y-6">
+          <div className="space-y-3 sm:space-y-4">
             <div>
-              <h3 className="text-lg font-semibold text-center mb-2">What's your budget range?</h3>
-              <p className="text-sm text-muted-foreground text-center mb-6">
-                Help us find services that match your budget
+              <h3 className="text-base sm:text-lg font-bold text-center mb-1">What's your budget range?</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground text-center mb-3 sm:mb-4">
+                Find services matching your budget
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-1 gap-1.5 sm:gap-2">
               {[
-                { value: "under-1000", label: "Under £1,000", desc: "Basic services and consultations" },
-                { value: "1000-5000", label: "£1,000 - £5,000", desc: "Standard service packages" },
-                { value: "5000-15000", label: "£5,000 - £15,000", desc: "Comprehensive solutions" },
-                { value: "over-15000", label: "Over £15,000", desc: "Enterprise-level services" },
-                { value: "discuss", label: "Let's discuss", desc: "Prefer to discuss pricing options" },
+                { value: "under-1000", label: "Under £1,000", desc: "Basic" },
+                { value: "1000-5000", label: "£1,000 - £5,000", desc: "Standard" },
+                { value: "5000-15000", label: "£5,000 - £15,000", desc: "Solutions" },
+                { value: "over-15000", label: "Over £15,000", desc: "Enterprise" },
+                { value: "discuss", label: "Let's discuss", desc: "Pricing" },
               ].map((budget) => (
                 <div
                   key={budget.value}
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                    formData.budget === budget.value
-                      ? 'border-primary bg-primary/5'
-                      : 'border-gray-200 hover:border-primary/50'
-                  }`}
+                  className={`p-2 sm:p-3 border-[1.5px] rounded-xl cursor-pointer transition-all ${formData.budget === budget.value
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-100 hover:border-primary/50'
+                    }`}
                   onClick={() => handleChange('budget', budget.value)}
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-medium">{budget.label}</div>
-                      <div className="text-sm text-muted-foreground">{budget.desc}</div>
+                      <div className="font-bold text-[12px] sm:text-sm leading-tight">{budget.label}</div>
+                      <div className="text-[9px] sm:text-xs text-muted-foreground leading-tight">{budget.desc}</div>
                     </div>
-                    {formData.budget === budget.value && (
-                      <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center md:hidden">
-                        <div className="w-2 h-2 bg-white rounded-full"></div>
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}
@@ -481,20 +498,18 @@ export default function SignupUser({ open, onOpenChange, initialService, initial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!w-[1280px] !max-w-[1280px] max-h-[85vh] overflow-y-auto" style={{ width: '1280px !important', maxWidth: '1280px !important' }}>
-        <DialogHeader>
-          <DialogTitle className="text-center">
-            {currentStep < 5 ? (
-              <>
-                Join Providers Hub
-                <div className="text-sm font-normal text-muted-foreground mt-2">
-                  Step {hasInitialService ? currentStep - 1 : currentStep} of {hasInitialService ? 3 : 4}
-                </div>
-              </>
-            ) : (
-              'Email Confirmation Required'
-            )}
+      <DialogContent className="!w-11/12 sm:!w-[500px] !max-w-[320px] sm:!max-w-[500px] max-h-[85vh] overflow-y-auto p-4 sm:p-8 rounded-[2rem] shadow-2xl border-none">
+        <DialogHeader className="mb-2">
+          <DialogTitle className="text-center text-base sm:text-xl font-bold">
+            {currentStep < 5 ? 'Join Providers Hub' : 'Verify Your Account'}
           </DialogTitle>
+          <DialogDescription className="text-center text-xs sm:text-sm mt-2">
+            {currentStep < 5 ? (
+              `Step ${hasInitialService ? currentStep - 1 : currentStep} of ${hasInitialService ? 3 : 4}`
+            ) : (
+              'Please check your email to continue'
+            )}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={(e) => { e.preventDefault(); currentStep === 4 && !isSigningUp && handleSubmit(); }} className="space-y-6">

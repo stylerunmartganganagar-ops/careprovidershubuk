@@ -145,12 +145,12 @@ export default function MessagesPage() {
         prev.map(conv =>
           conv.partner.id === partnerId
             ? {
-                ...conv,
-                hasNewMessage: false,
-                messages: conv.messages.map(msg =>
-                  msg.sender_id === partnerId ? { ...msg, is_read: true } : msg
-                ),
-              }
+              ...conv,
+              hasNewMessage: false,
+              messages: conv.messages.map(msg =>
+                msg.sender_id === partnerId ? { ...msg, is_read: true } : msg
+              ),
+            }
             : conv
         )
       );
@@ -203,7 +203,7 @@ export default function MessagesPage() {
             } : p);
           }
         }
-      } catch {}
+      } catch { }
     })();
   }, [conversations.length, activeChat]);
 
@@ -222,7 +222,7 @@ export default function MessagesPage() {
             .eq('id', user.id)
             .single();
           if (!error && data) setCurrentUserRole((data as any).role as any);
-        } catch {}
+        } catch { }
       })();
 
       return () => {
@@ -267,7 +267,7 @@ export default function MessagesPage() {
             return;
           }
         }
-      } catch {}
+      } catch { }
 
       // Fallback: select the first conversation (most recent)
       if (conversations[0]) {
@@ -292,7 +292,7 @@ export default function MessagesPage() {
     if (user?.id) {
       const interval = setInterval(() => {
         if (connectionStatus === 'disconnected' &&
-            Date.now() - lastRefresh.getTime() > 10000) {
+          Date.now() - lastRefresh.getTime() > 10000) {
           manualRefresh();
         }
       }, 10000);
@@ -506,7 +506,7 @@ export default function MessagesPage() {
             role: (partner as any).role || 'user'
           });
         }
-      } catch {}
+      } catch { }
       await markConversationAsRead(partnerId);
 
       // Find accepted milestone order in loaded messages
@@ -537,7 +537,7 @@ export default function MessagesPage() {
     // persist selection per user so it survives refresh
     try {
       if (user?.id) localStorage.setItem(`last_chat_${user.id}`, partnerId);
-    } catch {}
+    } catch { }
 
     setActiveChat(partnerId);
     setShowChatList(false);
@@ -557,10 +557,21 @@ export default function MessagesPage() {
 
     if (isActiveChatMessage) {
       setMessages(prev => {
+        // Check if this exact message already exists
         if (prev.some(msg => msg.id === newMessage.id)) {
           return prev;
         }
-        return [...prev, newMessage];
+        // Also filter out any optimistic messages that this real message replaces
+        // (optimistic messages have IDs starting with 'optimistic_')
+        const filtered = prev.filter(msg => {
+          if (!msg.id.startsWith('optimistic_')) return true;
+          // Remove optimistic messages from the same sender with same content
+          if (msg.sender_id === newMessage.sender_id && msg.content === newMessage.content) {
+            return false;
+          }
+          return true;
+        });
+        return [...filtered, newMessage];
       });
 
       scrollToBottom();
@@ -583,9 +594,16 @@ export default function MessagesPage() {
         const shouldMarkNew = newMessage.sender_id !== currentUserId && conv.partner.id !== currentActiveChat;
         const alreadyHasMessage = conv.messages.some(msg => msg.id === newMessage.id);
 
+        // Filter out optimistic messages that this real message replaces
+        const cleanedMessages = conv.messages.filter(msg => {
+          if (!msg.id.startsWith('optimistic_')) return true;
+          if (msg.sender_id === newMessage.sender_id && msg.content === newMessage.content) return false;
+          return true;
+        });
+
         return {
           ...conv,
-          messages: alreadyHasMessage ? conv.messages : [...conv.messages, newMessage],
+          messages: alreadyHasMessage ? cleanedMessages : [...cleanedMessages, newMessage],
           lastActivity: newMessage.created_at,
           hasNewMessage: shouldMarkNew || conv.hasNewMessage,
           partner: {
@@ -655,9 +673,16 @@ export default function MessagesPage() {
 
       if (data) {
         const insertedMessage = data as Message;
-        setMessages(prev => prev.map(msg =>
-          msg.id === optimisticMessage.id ? insertedMessage : msg
-        ));
+        setMessages(prev => {
+          // Replace the optimistic message and deduplicate
+          // (the realtime listener may have already added the real message)
+          const withoutOptimistic = prev.filter(msg => msg.id !== optimisticMessage.id);
+          const alreadyExists = withoutOptimistic.some(msg => msg.id === insertedMessage.id);
+          if (alreadyExists) {
+            return withoutOptimistic;
+          }
+          return [...withoutOptimistic, insertedMessage];
+        });
 
         // Immediately scroll down to show more message history
         if (messagesContainerRef.current) {
@@ -1072,12 +1097,12 @@ export default function MessagesPage() {
 
   const getConnectionStatusColor = () =>
     connectionStatus === 'connected' ? 'text-green-500' :
-    connectionStatus === 'connecting' ? 'text-yellow-500' : 'text-red-500';
+      connectionStatus === 'connecting' ? 'text-yellow-500' : 'text-red-500';
 
   const getConnectionStatusText = () =>
     connectionStatus === 'connected' ? 'Real-time connected' :
-    connectionStatus === 'connecting' ? 'Connecting...' :
-    'Disconnected - Manual refresh required';
+      connectionStatus === 'connecting' ? 'Connecting...' :
+        'Disconnected - Manual refresh required';
 
   const getDisplayUsername = () =>
     partnerInfo?.username ||
@@ -1204,9 +1229,8 @@ export default function MessagesPage() {
                   <div
                     key={conversation.partner.id}
                     onClick={() => selectChat(conversation.partner.id)}
-                    className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors border-b border-gray-100 last:border-b-0 min-h-[72px] ${
-                      activeChat === conversation.partner.id ? 'bg-accent/60 border-r-2 border-primary' : ''
-                    }`}
+                    className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-accent transition-colors border-b border-gray-100 last:border-b-0 min-h-[72px] ${activeChat === conversation.partner.id ? 'bg-accent/60 border-r-2 border-primary' : ''
+                      }`}
                   >
                     <div className="relative">
                       <Avatar className="h-10 w-10">
@@ -1218,7 +1242,7 @@ export default function MessagesPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start">
-                        <Link 
+                        <Link
                           to={`/user-profile?id=${conversation.partner.id}`}
                           className={`text-sm font-medium truncate hover:text-blue-600 transition-colors ${conversation.hasNewMessage ? 'text-blue-600' : ''}`}
                           onClick={(e) => e.stopPropagation()}
@@ -1254,7 +1278,7 @@ export default function MessagesPage() {
                       <img src={partnerInfo?.avatar} alt={getDisplayUsername()} />
                     </Avatar>
                     <div>
-                      <Link 
+                      <Link
                         to={`/user-profile?id=${partnerInfo?.id}`}
                         className="font-medium hover:text-blue-600 transition-colors"
                       >
@@ -1265,10 +1289,9 @@ export default function MessagesPage() {
                   </div>
                   <div className="flex items-center space-x-3">
                     <div className={`flex items-center space-x-1 text-xs ${getConnectionStatusColor()}`}>
-                      <div className={`w-2 h-2 rounded-full ${
-                        connectionStatus === 'connected' ? 'bg-green-500' :
+                      <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500' :
                         connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
-                      }`}></div>
+                        }`}></div>
                       <span className="hidden sm:inline">{getConnectionStatusText()}</span>
                     </div>
                     <button onClick={manualRefresh} className="p-1 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-800" title="Refresh messages">
@@ -1309,9 +1332,8 @@ export default function MessagesPage() {
                     <>
                       {messages.map((message) => (
                         <div key={message.id} className={`flex mb-3 ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`w-full max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${
-                            message.sender_id === user?.id ? 'bg-blue-500 text-white rounded-br-md' : 'bg-white text-gray-900 rounded-bl-md'
-                          }`}>
+                          <div className={`w-full max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-3 shadow-sm ${message.sender_id === user?.id ? 'bg-blue-500 text-white rounded-br-md' : 'bg-white text-gray-900 rounded-bl-md'
+                            }`}>
                             {(!message.message_type || message.message_type === 'text') && (
                               <>
                                 {message.content && (
@@ -1455,9 +1477,8 @@ export default function MessagesPage() {
                               </div>
                             )}
 
-                            <span className={`block text-[10px] mt-2 ${
-                              message.sender_id === user?.id ? 'text-blue-100' : 'text-gray-500'
-                            }`}>
+                            <span className={`block text-[10px] mt-2 ${message.sender_id === user?.id ? 'text-blue-100' : 'text-gray-500'
+                              }`}>
                               {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
@@ -1514,7 +1535,7 @@ export default function MessagesPage() {
                             onClick={() => {
                               setAttachments(prev => {
                                 const next = prev.filter((_, i) => i !== idx);
-                                try { localStorage.setItem(`chat_attachments_${activeChat}`, JSON.stringify(next)); } catch {}
+                                try { localStorage.setItem(`chat_attachments_${activeChat}`, JSON.stringify(next)); } catch { }
                                 return next;
                               });
                             }}
@@ -1527,32 +1548,32 @@ export default function MessagesPage() {
                   )}
                   <div className="flex items-center gap-2">
                     <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const max = 5 * 1024 * 1024; // 5MB
-                          if (file.size > max) {
-                            alert('Image should be less than 5MB');
-                            (e.target as HTMLInputElement).value = '';
-                            return;
-                          }
-                          const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
-                          const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
-                          if (!cloudName || !uploadPreset) {
-                            alert('Missing Cloudinary configuration');
-                            return;
-                          }
-                          const form = new FormData();
-                          form.append('file', file);
-                          form.append('upload_preset', uploadPreset);
-                          try {
-                            const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/upload`, { method: 'POST', body: form });
-                            const json = await res.json();
-                            if (json.secure_url) {
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const max = 5 * 1024 * 1024; // 5MB
+                        if (file.size > max) {
+                          alert('Image should be less than 5MB');
+                          (e.target as HTMLInputElement).value = '';
+                          return;
+                        }
+                        const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+                        const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+                        if (!cloudName || !uploadPreset) {
+                          alert('Missing Cloudinary configuration');
+                          return;
+                        }
+                        const form = new FormData();
+                        form.append('file', file);
+                        form.append('upload_preset', uploadPreset);
+                        try {
+                          const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/upload`, { method: 'POST', body: form });
+                          const json = await res.json();
+                          if (json.secure_url) {
                             // Directly send image as a message (no need to press Send)
                             if (!user?.id || !activeChat) {
                               alert('Select a conversation first');
@@ -1588,156 +1609,156 @@ export default function MessagesPage() {
                               }
                             }
                           } else {
-                              alert('Upload failed');
-                            }
-                          } catch (err) {
-                            console.error('Cloudinary upload failed', err);
                             alert('Upload failed');
-                          } finally {
-                            (e.target as HTMLInputElement).value = '';
                           }
-                        }}
+                        } catch (err) {
+                          console.error('Cloudinary upload failed', err);
+                          alert('Upload failed');
+                        } finally {
+                          (e.target as HTMLInputElement).value = '';
+                        }
+                      }}
+                    />
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Upload Image</Button>
+                    {currentUserRole === 'provider' && acceptedMilestoneOrderId && (
+                      <CreateMilestonesDialog
+                        milestoneOrderId={acceptedMilestoneOrderId}
+                        trigger={<Button variant="outline" size="sm">Manage Milestones</Button>}
                       />
-                      <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>Upload Image</Button>
-                      {currentUserRole === 'provider' && acceptedMilestoneOrderId && (
-                        <CreateMilestonesDialog
-                          milestoneOrderId={acceptedMilestoneOrderId}
-                          trigger={<Button variant="outline" size="sm">Manage Milestones</Button>}
-                        />
-                      )}
-                      {currentUserRole === 'provider' && (
-                        <Dialog open={showStartMilestoneDialog} onOpenChange={setShowStartMilestoneDialog}>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm">Start Milestone Order</Button>
-                          </DialogTrigger>
-                          <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Start Milestone Order</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-6">
-                              {/* Order Details */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                  <Label>Title</Label>
-                                  <Input value={milestoneOrderTitle} onChange={e => setMilestoneOrderTitle(e.target.value)} placeholder="e.g. Website Development Project" />
-                                </div>
-                                <div>
-                                  <Label>Total Amount (£)</Label>
-                                  <Input type="number" min={1} value={milestoneOrderTotalAmount} onChange={e => setMilestoneOrderTotalAmount(Number(e.target.value))} />
-                                </div>
-                              </div>
+                    )}
+                    {currentUserRole === 'provider' && (
+                      <Dialog open={showStartMilestoneDialog} onOpenChange={setShowStartMilestoneDialog}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">Start Milestone Order</Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>Start Milestone Order</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-6">
+                            {/* Order Details */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-1">
-                                <Label>Requirements (optional)</Label>
-                                <Textarea rows={3} value={milestoneOrderRequirements} onChange={e => setMilestoneOrderRequirements(e.target.value)} placeholder="Describe the project requirements" />
+                                <Label>Title</Label>
+                                <Input value={milestoneOrderTitle} onChange={e => setMilestoneOrderTitle(e.target.value)} placeholder="e.g. Website Development Project" />
+                              </div>
+                              <div>
+                                <Label>Total Amount (£)</Label>
+                                <Input type="number" min={1} value={milestoneOrderTotalAmount} onChange={e => setMilestoneOrderTotalAmount(Number(e.target.value))} />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Requirements (optional)</Label>
+                              <Textarea rows={3} value={milestoneOrderRequirements} onChange={e => setMilestoneOrderRequirements(e.target.value)} placeholder="Describe the project requirements" />
+                            </div>
+
+                            {/* Milestones Section */}
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <Label className="text-base font-medium">Milestones</Label>
+                                <Button type="button" variant="outline" size="sm" onClick={addMilestone}>
+                                  <Plus className="h-4 w-4 mr-2" />
+                                  Add Milestone
+                                </Button>
                               </div>
 
-                              {/* Milestones Section */}
-                              <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                  <Label className="text-base font-medium">Milestones</Label>
-                                  <Button type="button" variant="outline" size="sm" onClick={addMilestone}>
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Add Milestone
-                                  </Button>
-                                </div>
+                              <div className="space-y-3">
+                                {milestonesOrder.map((milestone, index) => (
+                                  <div key={index} className="p-4 border rounded-lg space-y-3 bg-gray-50">
+                                    <div className="flex items-center justify-between">
+                                      <h4 className="font-medium">Milestone {index + 1}</h4>
+                                      {milestonesOrder.length > 1 && (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => removeMilestone(index)}
+                                        >
+                                          Remove
+                                        </Button>
+                                      )}
+                                    </div>
 
-                                <div className="space-y-3">
-                                  {milestonesOrder.map((milestone, index) => (
-                                    <div key={index} className="p-4 border rounded-lg space-y-3 bg-gray-50">
-                                      <div className="flex items-center justify-between">
-                                        <h4 className="font-medium">Milestone {index + 1}</h4>
-                                        {milestonesOrder.length > 1 && (
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => removeMilestone(index)}
-                                          >
-                                            Remove
-                                          </Button>
-                                        )}
-                                      </div>
-
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div>
-                                          <Label htmlFor={`milestone-title-${index}`}>Title</Label>
-                                          <Input
-                                            id={`milestone-title-${index}`}
-                                            value={milestone.title}
-                                            onChange={(e) => updateMilestone(index, 'title', e.target.value)}
-                                            placeholder="e.g., Initial Assessment"
-                                          />
-                                        </div>
-
-                                        <div>
-                                          <Label htmlFor={`milestone-amount-${index}`}>Amount (£)</Label>
-                                          <Input
-                                            id={`milestone-amount-${index}`}
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            value={milestone.amount}
-                                            onChange={(e) => updateMilestone(index, 'amount', e.target.value)}
-                                            placeholder="0.00"
-                                          />
-                                        </div>
-                                      </div>
-
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                       <div>
-                                        <Label htmlFor={`milestone-description-${index}`}>Description</Label>
-                                        <Textarea
-                                          id={`milestone-description-${index}`}
-                                          value={milestone.description}
-                                          onChange={(e) => updateMilestone(index, 'description', e.target.value)}
-                                          placeholder="Describe what will be delivered in this milestone..."
-                                          rows={2}
+                                        <Label htmlFor={`milestone-title-${index}`}>Title</Label>
+                                        <Input
+                                          id={`milestone-title-${index}`}
+                                          value={milestone.title}
+                                          onChange={(e) => updateMilestone(index, 'title', e.target.value)}
+                                          placeholder="e.g., Initial Assessment"
                                         />
                                       </div>
 
                                       <div>
-                                        <Label htmlFor={`milestone-due-date-${index}`}>Due Date</Label>
+                                        <Label htmlFor={`milestone-amount-${index}`}>Amount (£)</Label>
                                         <Input
-                                          id={`milestone-due-date-${index}`}
-                                          type="date"
-                                          value={milestone.due_date}
-                                          onChange={(e) => updateMilestone(index, 'due_date', e.target.value)}
-                                          min={new Date().toISOString().split('T')[0]}
+                                          id={`milestone-amount-${index}`}
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={milestone.amount}
+                                          onChange={(e) => updateMilestone(index, 'amount', e.target.value)}
+                                          placeholder="0.00"
                                         />
                                       </div>
                                     </div>
-                                  ))}
-                                </div>
 
-                                {/* Total validation */}
-                                {milestonesOrder.filter(m => m.amount).length > 0 && (
-                                  <div className="text-sm text-gray-600">
-                                    Total milestone amounts: £{formatAmount(milestonesOrder.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0))} / £{formatAmount(milestoneOrderTotalAmount)}
+                                    <div>
+                                      <Label htmlFor={`milestone-description-${index}`}>Description</Label>
+                                      <Textarea
+                                        id={`milestone-description-${index}`}
+                                        value={milestone.description}
+                                        onChange={(e) => updateMilestone(index, 'description', e.target.value)}
+                                        placeholder="Describe what will be delivered in this milestone..."
+                                        rows={2}
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <Label htmlFor={`milestone-due-date-${index}`}>Due Date</Label>
+                                      <Input
+                                        id={`milestone-due-date-${index}`}
+                                        type="date"
+                                        value={milestone.due_date}
+                                        onChange={(e) => updateMilestone(index, 'due_date', e.target.value)}
+                                        min={new Date().toISOString().split('T')[0]}
+                                      />
+                                    </div>
                                   </div>
-                                )}
+                                ))}
                               </div>
 
-                              <div className="flex justify-end gap-2">
-                                <Button type="button" variant="outline" onClick={() => setShowStartMilestoneDialog(false)}>
-                                  Cancel
-                                </Button>
-                                <Button onClick={sendMilestoneOrderStart} disabled={!milestoneOrderTitle.trim() || milestoneOrderTotalAmount <= 0}>
-                                  Send Proposal
-                                </Button>
-                              </div>
+                              {/* Total validation */}
+                              {milestonesOrder.filter(m => m.amount).length > 0 && (
+                                <div className="text-sm text-gray-600">
+                                  Total milestone amounts: £{formatAmount(milestonesOrder.reduce((sum, m) => sum + (parseFloat(m.amount) || 0), 0))} / £{formatAmount(milestoneOrderTotalAmount)}
+                                </div>
+                              )}
                             </div>
-                          </DialogContent>
-                        </Dialog>
-                      )}
-                      {currentUserRole === 'provider' && (
-                        <Dialog open={showStartDialog} onOpenChange={setShowStartDialog}>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm">Start Order</Button>
-                          </DialogTrigger>
-                          <DialogContent className="sm:max-w-lg">
-                            <DialogHeader>
-                              <DialogTitle>Start an Order</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4">
+
+                            <div className="flex justify-end gap-2">
+                              <Button type="button" variant="outline" onClick={() => setShowStartMilestoneDialog(false)}>
+                                Cancel
+                              </Button>
+                              <Button onClick={sendMilestoneOrderStart} disabled={!milestoneOrderTitle.trim() || milestoneOrderTotalAmount <= 0}>
+                                Send Proposal
+                              </Button>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                    {currentUserRole === 'provider' && (
+                      <Dialog open={showStartDialog} onOpenChange={setShowStartDialog}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">Start Order</Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-lg">
+                          <DialogHeader>
+                            <DialogTitle>Start an Order</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
                             <div className="space-y-1">
                               <Label>Title</Label>
                               <Input value={orderTitle} onChange={e => setOrderTitle(e.target.value)} placeholder="e.g. CQC Registration Support" />
@@ -1759,11 +1780,11 @@ export default function MessagesPage() {
                             <div className="flex justify-end">
                               <Button onClick={sendOrderStart} disabled={!orderTitle.trim() || orderPrice <= 0 || orderDeliveryDays <= 0}>Send Proposal</Button>
                             </div>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                      )}
-                    </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                  </div>
 
                   <div className="flex gap-3">
                     <Input

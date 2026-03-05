@@ -46,6 +46,7 @@ import { dailyShuffle, useBuyerProjects, useServices } from '../hooks/useProject
 import { useIsPro } from '../hooks/usePro';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { useUserPreferences, budgetToRange } from '../hooks/useUserPreferences';
 
 // ServiceCard component - enhanced version from SearchResults
 interface ServiceCardProps {
@@ -181,7 +182,7 @@ export default function DashboardPage() {
     const checkScreenSize = () => {
       setIsMobile(window.innerWidth < 768);
     };
-    
+
     checkScreenSize();
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
@@ -468,19 +469,94 @@ export default function DashboardPage() {
     }
   ];
 
-  const justForYouServices = shuffledServices.slice(0, 6);
+  const { preferences, loading: prefsLoading } = useUserPreferences(user?.id);
 
+  // --- Curated service logic based on user preferences ---
+
+  // 1. "Top Picks For You" — services matching user's preferred category, sorted by rating
+  const justForYouServices = useMemo(() => {
+    if (preferences?.preferred_service) {
+      const categoryMatch = services.filter(
+        (s) => s.category?.toLowerCase() === preferences.preferred_service?.toLowerCase()
+      );
+      // Sort by provider rating (descending), then review count
+      const sorted = [...categoryMatch].sort((a, b) => {
+        const ratingA = a.provider?.rating || a.rating || 0;
+        const ratingB = b.provider?.rating || b.rating || 0;
+        if (ratingB !== ratingA) return ratingB - ratingA;
+        const reviewA = a.provider?.review_count || a.review_count || 0;
+        const reviewB = b.provider?.review_count || b.review_count || 0;
+        return reviewB - reviewA;
+      });
+      if (sorted.length > 0) return sorted.slice(0, 6);
+    }
+    // Fallback: shuffled services
+    return shuffledServices.slice(0, 6);
+  }, [services, shuffledServices, preferences]);
+
+  // 2. "Featured Services" — top-rated services overall (with featured boost)
   const curatedFeaturedServices = useMemo(() => {
-    const highValue = services.filter(service => service.price > 500);
-    return dailyShuffle(highValue).slice(0, 6);
+    // Prioritize featured services, then top-rated
+    const featured = services.filter(
+      (s) => s.is_featured === true && (!s.featured_until || new Date(s.featured_until) > new Date())
+    );
+    const topRated = [...services].sort((a, b) => {
+      const rA = a.provider?.rating || a.rating || 0;
+      const rB = b.provider?.rating || b.rating || 0;
+      return rB - rA;
+    });
+    // Merge: featured first, then fill with top-rated (no duplicates)
+    const featuredIds = new Set(featured.map((s) => s.id));
+    const combined = [...dailyShuffle(featured)];
+    for (const s of topRated) {
+      if (!featuredIds.has(s.id) && combined.length < 6) {
+        combined.push(s);
+      }
+    }
+    return combined.slice(0, 6);
   }, [services]);
   const hasCuratedFeatured = curatedFeaturedServices.length > 0;
   const featuredServices = hasCuratedFeatured ? curatedFeaturedServices : shuffledServices.slice(0, 6);
 
+  // 3. "Based on Your Needs" — services matching budget range + category, sorted by relevance
   const curatedBasedOnSearches = useMemo(() => {
-    const primary = shuffledServices.slice(6, 12);
-    return primary.length > 0 ? primary : shuffledServices.slice(0, 6);
-  }, [shuffledServices]);
+    if (!preferences) {
+      // No preferences — use shuffled fallback
+      const primary = shuffledServices.slice(6, 12);
+      return primary.length > 0 ? primary : shuffledServices.slice(0, 6);
+    }
+
+    const [minBudget, maxBudget] = budgetToRange(preferences.preferred_budget);
+    let pool = [...services];
+
+    // Filter by budget range if we have a meaningful one
+    if (maxBudget !== Infinity || minBudget > 0) {
+      pool = pool.filter((s) => {
+        const price = s.price || 0;
+        return price >= minBudget && price <= maxBudget;
+      });
+    }
+
+    // If user has a preferred category, boost those matches
+    const preferredCat = preferences.preferred_service?.toLowerCase();
+    if (preferredCat) {
+      pool.sort((a, b) => {
+        const aMatch = a.category?.toLowerCase() === preferredCat ? 1 : 0;
+        const bMatch = b.category?.toLowerCase() === preferredCat ? 1 : 0;
+        if (bMatch !== aMatch) return bMatch - aMatch;
+        // Then sort by rating
+        const rA = a.provider?.rating || a.rating || 0;
+        const rB = b.provider?.rating || b.rating || 0;
+        return rB - rA;
+      });
+    }
+
+    // Exclude services already shown in "Just For You" to avoid duplicates
+    const justForYouIds = new Set(justForYouServices.map((s) => s.id));
+    const filtered = pool.filter((s) => !justForYouIds.has(s.id));
+
+    return filtered.length > 0 ? filtered.slice(0, 6) : shuffledServices.slice(0, 6);
+  }, [services, shuffledServices, preferences, justForYouServices]);
   const hasCuratedSearchBased = curatedBasedOnSearches.length > 0;
   const basedOnSearchesServices = hasCuratedSearchBased ? curatedBasedOnSearches : shuffledServices.slice(0, 6);
 
@@ -512,9 +588,9 @@ export default function DashboardPage() {
                     Buyer Pro Member
                   </Badge>
                 )}
-                <Button 
+                <Button
                   onClick={() => window.location.reload()}
-                  variant="outline" 
+                  variant="outline"
                   size="sm"
                   className="bg-white/10 border-white/30 text-xs sm:text-sm text-white hover:bg-white/20 px-3 sm:px-4"
                 >
@@ -622,7 +698,7 @@ export default function DashboardPage() {
                 <div>
                   <h2 className="text-xl font-bold">Featured Services</h2>
                   <p className="text-sm text-gray-600">
-                    Handpicked top-rated healthcare service providers
+                    Top-rated healthcare service providers
                   </p>
                 </div>
                 {(featuredServices.length > (isMobile ? 2 : 6)) && (
@@ -682,9 +758,13 @@ export default function DashboardPage() {
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <div>
-                  <h2 className="text-xl font-bold">Just For You</h2>
+                  <h2 className="text-xl font-bold">
+                    {preferences?.preferred_service ? `Top Picks: ${preferences.preferred_service}` : 'Just For You'}
+                  </h2>
                   <p className="text-sm text-gray-600">
-                    Personalized recommendations based on your activity
+                    {preferences?.preferred_service
+                      ? `Best matches for your selected service`
+                      : 'Personalized recommendations based on your activity'}
                   </p>
                 </div>
                 {(justForYouServices.length > (isMobile ? 2 : 6)) && (
@@ -739,9 +819,18 @@ export default function DashboardPage() {
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <div>
-                  <h2 className="text-xl font-bold">Based on Your Searches</h2>
+                  <h2 className="text-xl font-bold">
+                    {preferences?.preferred_budget ? 'Matching Your Budget' : 'Based on Your Searches'}
+                  </h2>
                   <p className="text-sm text-gray-600">
-                    More services related to your recent searches
+                    {preferences?.preferred_budget
+                      ? `Services within your ${preferences.preferred_budget === 'under-1000' ? 'Under £1,000' :
+                        preferences.preferred_budget === '1000-5000' ? '£1,000–£5,000' :
+                          preferences.preferred_budget === '5000-15000' ? '£5,000–£15,000' :
+                            preferences.preferred_budget === 'over-15000' ? 'Over £15,000' :
+                              'flexible'
+                      } budget`
+                      : 'More services related to your recent searches'}
                   </p>
                 </div>
                 {(basedOnSearchesServices.length > (isMobile ? 2 : 6)) && (
@@ -797,122 +886,122 @@ export default function DashboardPage() {
 
           {/* Right Column - Profile Completion, My Projects & Quick Actions */}
           {projects.length > 0 && (
-          <div className="space-y-8">
-            {/* Profile Completion (Client) */}
-            <section>
-              <h2 className="text-xl font-bold mb-4">Profile Completion</h2>
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-center mb-4 cursor-pointer hover:bg-gray-50 p-2 rounded" onClick={() => navigate('/user-profile')}>
-                    <span className="font-semibold">{clientProfileCompletion.percentage}% Complete</span>
-                    <Badge variant="secondary">{clientProfileCompletion.level}</Badge>
-                  </div>
-                  <Progress value={clientProfileCompletion.percentage} className="mb-4 cursor-pointer" />
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Profile photo</span>
-                      {clientProfileCompletion.fields.avatar ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
+            <div className="space-y-8">
+              {/* Profile Completion (Client) */}
+              <section>
+                <h2 className="text-xl font-bold mb-4">Profile Completion</h2>
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-center mb-4 cursor-pointer hover:bg-gray-50 p-2 rounded" onClick={() => navigate('/user-profile')}>
+                      <span className="font-semibold">{clientProfileCompletion.percentage}% Complete</span>
+                      <Badge variant="secondary">{clientProfileCompletion.level}</Badge>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Description</span>
-                      {clientProfileCompletion.fields.description ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
+                    <Progress value={clientProfileCompletion.percentage} className="mb-4 cursor-pointer" />
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>Profile photo</span>
+                        {clientProfileCompletion.fields.avatar ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Description</span>
+                        {clientProfileCompletion.fields.description ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between cursor-pointer hover:bg-gray-50 p-1 rounded">
+                        <span>Portfolio</span>
+                        {clientProfileCompletion.fields.portfolio ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Phone verification</span>
+                        {clientProfileCompletion.fields.phone ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
+                      <div className="flex justify-between">
+                        <span>KYC verification</span>
+                        {clientProfileCompletion.fields.kyc ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-orange-600" />
+                        )}
+                      </div>
                     </div>
-                    <div className="flex justify-between cursor-pointer hover:bg-gray-50 p-1 rounded">
-                      <span>Portfolio</span>
-                      {clientProfileCompletion.fields.portfolio ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Phone verification</span>
-                      {clientProfileCompletion.fields.phone ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                    <div className="flex justify-between">
-                      <span>KYC verification</span>
-                      {clientProfileCompletion.fields.kyc ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                      )}
-                    </div>
-                  </div>
-                  <Button className="w-full mt-4" variant="outline" onClick={() => navigate('/user-profile')}>
-                    Complete Profile
-                  </Button>
-                </CardContent>
-              </Card>
-            </section>
+                    <Button className="w-full mt-4" variant="outline" onClick={() => navigate('/user-profile')}>
+                      Complete Profile
+                    </Button>
+                  </CardContent>
+                </Card>
+              </section>
 
-            {/* My Projects */}
-            <section>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">My Projects</h2>
-                <Button variant="outline" size="sm" onClick={() => navigate('/my-projects')}>
-                  View All
-                </Button>
-              </div>
-              <Card>
-                <CardContent className="p-6">
-                  {projectsLoading ? (
-                    <div className="text-center py-4 text-gray-500">Loading projects...</div>
-                  ) : projects.length > 0 ? (
-                    <div className="space-y-4">
-                      {projects.slice(0, 3).map((project) => (
-                        <div key={project.id} className="border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
-                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-semibold text-sm line-clamp-2">{project.title}</h4>
-                            <Badge
-                              variant={project.status === 'open' ? 'default' : 'secondary'}
-                              className="text-xs"
+              {/* My Projects */}
+              <section>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold">My Projects</h2>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/my-projects')}>
+                    View All
+                  </Button>
+                </div>
+                <Card>
+                  <CardContent className="p-6">
+                    {projectsLoading ? (
+                      <div className="text-center py-4 text-gray-500">Loading projects...</div>
+                    ) : projects.length > 0 ? (
+                      <div className="space-y-4">
+                        {projects.slice(0, 3).map((project) => (
+                          <div key={project.id} className="border-b border-gray-100 pb-4 last:border-b-0 last:pb-0">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold text-sm line-clamp-2">{project.title}</h4>
+                              <Badge
+                                variant={project.status === 'open' ? 'default' : 'secondary'}
+                                className="text-xs"
+                              >
+                                {project.status}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-gray-600">
+                              <span>£{project.budget}</span>
+                              <span>{new Date(project.created_at).toLocaleDateString()}</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="mt-2 h-7 px-2 text-xs"
+                              onClick={() => navigate(`/project/${project.id}`)}
                             >
-                              {project.status}
-                            </Badge>
+                              View Details
+                            </Button>
                           </div>
-                          <div className="flex items-center justify-between text-xs text-gray-600">
-                            <span>£{project.budget}</span>
-                            <span>{new Date(project.created_at).toLocaleDateString()}</span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="mt-2 h-7 px-2 text-xs"
-                            onClick={() => navigate(`/project/${project.id}`)}
-                          >
-                            View Details
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-4 text-gray-500">
-                      No projects posted yet
-                      <Button
-                        variant="link"
-                        className="block mt-2 text-primary"
-                        onClick={() => navigate('/post-project')}
-                      >
-                        Post Your First Project
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </section>
-          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-gray-500">
+                        No projects posted yet
+                        <Button
+                          variant="link"
+                          className="block mt-2 text-primary"
+                          onClick={() => navigate('/post-project')}
+                        >
+                          Post Your First Project
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </section>
+            </div>
           )}
         </div>
       </main>
