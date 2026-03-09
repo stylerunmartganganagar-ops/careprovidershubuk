@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import brandLogo from "@/assets/Screenshot_2026-03-09_212602-removebg-preview.png";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -20,6 +21,22 @@ const serviceCategories = [
   { name: "Supplies", href: "#supplies" },
 ];
 
+const Logo = () => (
+  <a href="/" className="flex items-center gap-3" aria-label="CareProviders Hub home">
+    <img
+      src={brandLogo}
+      alt="CareProviders Hub logo"
+      className="h-12 w-auto drop-shadow-sm"
+      loading="eager"
+      decoding="async"
+    />
+    <div className="leading-tight">
+      <p className="text-base font-semibold text-foreground">CareProviders Hub</p>
+      <p className="text-xs text-muted-foreground">Freelance Jobs, Daily Gigs, Hourly Work.</p>
+    </div>
+  </a>
+);
+
 export const Navigation = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -28,9 +45,7 @@ export const Navigation = () => {
       <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
         <div className="flex items-center">
-          <a href="/" className="text-2xl font-bold text-primary">
-            Providers Hub
-          </a>
+          <Logo />
         </div>
 
         {/* Desktop Navigation */}

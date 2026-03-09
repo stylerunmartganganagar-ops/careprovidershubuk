@@ -3,21 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { Navigation } from "@/components/Navigation";
 import { Hero } from "@/components/Hero";
-import { TrustedBy } from "@/components/TrustedBy";
-import { ServiceCategories } from "@/components/ServiceCategories";
-import { HowItWorks } from "@/components/HowItWorks";
-import { VideoTestimonials } from "@/components/VideoTestimonials";
-import { WrittenTestimonials } from "@/components/WrittenTestimonials";
-import { WhyChooseUs } from "@/components/WhyChooseUs";
-import { ForCareProviders } from "@/components/ForCareProviders";
-import { ForProfessionals } from "@/components/ForProfessionals";
-import { Insights } from "@/components/Insights";
-import { FinalCTA } from "@/components/FinalCTA";
+import {
+  CategoryHighlights,
+  ExploreCategoriesSection,
+  FeaturedProvidersSection,
+  HowItWorksRedesign,
+  ProviderCtaSection,
+  SocialProofSection,
+  TrustSectionRedesign,
+} from "@/components/LandingSections";
 import { Footer } from "@/components/Footer";
+import { useCategories } from "@/hooks/useCategories";
 
 const Index = () => {
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
+  const { categories } = useCategories();
 
   useEffect(() => {
     // Redirect authenticated users to their dashboard
@@ -31,19 +32,16 @@ const Index = () => {
   }, [isAuthenticated, user, navigate]);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-white">
       <Navigation />
       <Hero />
-      <TrustedBy />
-      <ServiceCategories />
-      <HowItWorks />
-      <VideoTestimonials />
-      <WrittenTestimonials />
-      <WhyChooseUs />
-      <ForCareProviders />
-      <ForProfessionals />
-      <Insights />
-      <FinalCTA />
+      <CategoryHighlights categories={categories} />
+      <SocialProofSection />
+      <ExploreCategoriesSection categories={categories} />
+      <FeaturedProvidersSection categories={categories} />
+      <HowItWorksRedesign />
+      <TrustSectionRedesign />
+      <ProviderCtaSection />
       <Footer />
     </div>
   );

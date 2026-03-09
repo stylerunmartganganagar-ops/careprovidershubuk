@@ -99,7 +99,7 @@ export default function LoginPage() {
           <div className="max-w-md text-center">
             <div className="mb-8">
               <Building2 className="h-16 w-16 mx-auto mb-4 text-white/90" />
-              <h1 className="text-4xl font-bold mb-2">Healthcare Nexus</h1>
+              <h1 className="text-4xl font-bold mb-2">CareProviders Hub</h1>
               <p className="text-xl text-blue-100">Connecting Care Providers</p>
             </div>
             <div className="space-y-4 text-lg">
@@ -125,7 +125,7 @@ export default function LoginPage() {
           {/* Mobile logo - only show on mobile */}
           <div className="lg:hidden text-center">
             <Building2 className="h-12 w-12 mx-auto mb-4 text-blue-600" />
-            <h1 className="text-2xl font-bold text-gray-900">Healthcare Nexus</h1>
+            <h1 className="text-2xl font-bold text-gray-900">CareProviders Hub</h1>
           </div>
 
           <div className="text-center">

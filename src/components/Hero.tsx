@@ -1,61 +1,85 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Search, MapPin } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { BadgeCheck, MapPin, Search, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import heroBackground from "@/assets/hero-background.jpg";
 import SignupUser from "@/pages/SignupUser";
 import { useAuth } from "@/lib/auth.tsx";
 import { useCategories } from "@/hooks/useCategories";
 
-const popularSearches = [];
-// Database queries will populate this array; currently empty
+const popularSearches = ["CQC Support", "Training Providers", "Care Audits", "Equipment / Supplies"];
 
 export const Hero = () => {
   const [selectedService, setSelectedService] = useState("");
   const [postcode, setPostcode] = useState("");
   const [showSignupModal, setShowSignupModal] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { categories, loading: categoriesLoading, error: categoriesError } = useCategories();
+  const suggestionContainerRef = useRef<HTMLDivElement>(null);
 
-  const categoryGroups = useMemo(() => {
-    if (!categories) return [];
-    return categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      subcategories: category.subcategories || [],
-    }));
+  const suggestions = useMemo(() => {
+    const entries = categories.flatMap((category) => {
+      const categoryEntry = {
+        id: `category-${category.id}`,
+        name: category.name,
+        type: "Category",
+      };
+
+      const subcategoryEntries = (category.subcategories || []).map((subcategory) => ({
+        id: `subcategory-${subcategory.id}`,
+        name: subcategory.name,
+        type: category.name,
+      }));
+
+      return [categoryEntry, ...subcategoryEntries];
+    });
+
+    return entries.filter(
+      (entry, index, array) => array.findIndex((item) => item.name.toLowerCase() === entry.name.toLowerCase()) === index,
+    );
   }, [categories]);
 
-  // Close signup modal when user becomes authenticated (e.g., after email confirmation)
+  const filteredSuggestions = useMemo(() => {
+    const query = selectedService.trim().toLowerCase();
+    if (!query) return suggestions.slice(0, 8);
+    return suggestions.filter((suggestion) => suggestion.name.toLowerCase().includes(query)).slice(0, 8);
+  }, [selectedService, suggestions]);
+
   useEffect(() => {
     if (isAuthenticated && showSignupModal) {
-      console.log('User authenticated, closing signup modal');
       setShowSignupModal(false);
     }
   }, [isAuthenticated, showSignupModal]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!suggestionContainerRef.current?.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const handleSearch = () => {
+    const normalizedService = selectedService.trim();
     if (!isAuthenticated) {
-      // Show 4-step signup modal for unauthenticated users
       setShowSignupModal(true);
     } else {
-      // Navigate to search results for authenticated users
       const params = new URLSearchParams();
-      if (selectedService) params.set('service', selectedService);
+      if (normalizedService) params.set('service', normalizedService);
       if (postcode) params.set('location', postcode);
       navigate(`/searchresults?${params.toString()}`);
     }
+  };
+
+  const handleSuggestionSelect = (value: string) => {
+    setSelectedService(value);
+    setShowSuggestions(false);
   };
 
   const handlePopularSearch = (service: string) => {
@@ -66,97 +90,159 @@ export const Hero = () => {
       navigate(`/searchresults?service=${encodeURIComponent(service)}`);
     }
   };
+
+  const stats = [
+    { icon: Users, value: "1,500+", label: "care providers across the UK" },
+    { icon: BadgeCheck, value: "4.8/5", label: "average buyer satisfaction" },
+    { icon: ShieldCheck, value: "Trusted", label: "specialist healthcare services" },
+  ];
+
   return (
     <>
-      <section className="relative min-h-[600px] flex items-center justify-center overflow-hidden">
-        {/* Background Image with Overlay */}
+      <section className="relative flex min-h-[680px] items-center overflow-hidden">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${heroBackground})` }}
         >
-          <div className="absolute inset-0 bg-secondary/70" />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 via-slate-950/65 to-slate-950/80" />
         </div>
 
-        {/* Content */}
-        <div className="relative z-10 container mx-auto px-4 py-20 text-center">
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 animate-fade-in">
-            Find Trusted Healthcare Professionals
-            <br />
-            for Your Care Business
-          </h1>
-          
-          <p className="text-xl md:text-2xl text-white/90 mb-12 max-w-3xl mx-auto animate-slide-up">
-            Connect with CQC-compliant services, expert consultants, and essential suppliers
-          </p>
+        <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-12 px-4 py-24 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl text-center lg:text-left">
+            <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-md">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+              Matching care businesses with specialist providers
+            </div>
 
-          {/* Search Bar */}
-          <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-xl p-3 mb-8 animate-scale-in">
-            <div className="flex flex-col md:flex-row gap-3">
-              <div className="flex-1">
-                <Select
-                  value={selectedService}
-                  onValueChange={setSelectedService}
-                  disabled={categoriesLoading || categoryGroups.length === 0}
-                >
-                  <SelectTrigger className="h-14 text-base">
-                    <SelectValue
-                      placeholder={
-                        categoriesLoading
-                          ? "Loading categories..."
-                          : categoriesError
-                            ? "Unable to load categories"
-                            : "What service are you looking for?"
+            <h1 className="text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-7xl">
+              Find the <span className="text-blue-400">right healthcare service</span> for your business
+            </h1>
+
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/75 sm:text-xl">
+              Discover compliance experts, consultants, trainers, suppliers, and operational partners built for care providers across the UK.
+            </p>
+
+            <div className="mt-10 max-w-4xl rounded-[1.75rem] border border-white/10 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.35)]">
+              <div className="flex flex-col gap-3 lg:flex-row">
+                <div className="relative flex-1" ref={suggestionContainerRef}>
+                  <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder={
+                      categoriesLoading
+                        ? "Loading services..."
+                        : categoriesError
+                          ? "Unable to load services"
+                          : "Search compliance, consultancy, training, supplies..."
+                    }
+                    className="h-14 rounded-2xl border-0 bg-transparent pl-12 pr-4 text-base text-slate-900 shadow-none focus-visible:ring-0"
+                    value={selectedService}
+                    onChange={(e) => {
+                      setSelectedService(e.target.value);
+                      setShowSuggestions(true);
+                    }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSearch();
                       }
-                    />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60 overflow-y-auto scrollbar-hide">
-                    {categoryGroups.map((category) => (
-                      <SelectGroup key={category.id}>
-                        <SelectItem value={category.name}>
-                          {category.name}
-                        </SelectItem>
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="md:w-64">
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-5 w-5" />
+                    }}
+                  />
+                  {showSuggestions && !categoriesLoading && filteredSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                      {filteredSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.id}
+                          type="button"
+                          className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-slate-50"
+                          onClick={() => handleSuggestionSelect(suggestion.name)}
+                        >
+                          <span className="font-medium text-slate-900">{suggestion.name}</span>
+                          <span className="text-xs text-slate-500">{suggestion.type}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative lg:w-64">
+                  <MapPin className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                   <Input
                     placeholder="Enter your postcode"
-                    className="h-14 pl-10 text-base"
+                    className="h-14 rounded-2xl border-0 bg-slate-50 pl-12 text-base shadow-none focus-visible:ring-2"
                     value={postcode}
                     onChange={(e) => setPostcode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSearch();
+                      }
+                    }}
                   />
                 </div>
+
+                <Button size="lg" className="h-14 rounded-2xl px-8" onClick={handleSearch}>
+                  <Search className="mr-2 h-5 w-5" />
+                  Get Started
+                </Button>
               </div>
-              
-              <Button size="lg" className="h-14 px-8 bg-primary hover:bg-primary/90" onClick={handleSearch}>
-                <Search className="mr-2 h-5 w-5" />
-                Get Started
-              </Button>
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+              <span className="text-sm font-medium text-white/70">Popular:</span>
+              {popularSearches.map((search) => (
+                <button
+                  key={search}
+                  className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white transition-colors hover:bg-white/20"
+                  onClick={() => handlePopularSearch(search)}
+                >
+                  {search}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              {stats.map((stat) => {
+                const Icon = stat.icon;
+                return (
+                  <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/10 px-5 py-4 backdrop-blur-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold text-white">{stat.value}</p>
+                        <p className="text-sm text-white/70">{stat.label}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Popular Searches */}
-          <div className="flex flex-wrap justify-center gap-2 animate-fade-in">
-            <span className="text-white/80 text-sm">Popular:</span>
-            {popularSearches.map((search) => (
-              <button
-                key={search}
-                className="px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm rounded-full transition-colors duration-200"
-                onClick={() => handlePopularSearch(search)}
-              >
-                {search}
-              </button>
-            ))}
+          <div className="hidden lg:block lg:w-[360px]">
+            <div className="rounded-[2rem] border border-white/10 bg-white/10 p-6 text-white shadow-[0_24px_80px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+              <div className="rounded-[1.5rem] bg-white p-4 text-slate-900">
+                <img src={heroBackground} alt="Care providers" className="h-52 w-full rounded-[1.25rem] object-cover" />
+                <div className="mt-5 flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <Sparkles className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-600">CareProviders Hub</p>
+                    <h3 className="text-lg font-bold">Built for specialist healthcare procurement</h3>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-slate-500">
+                  Search categories from the live database, capture buyer intent, and keep the existing signup flow intact.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* 4-Step Signup Modal */}
       <SignupUser
         open={showSignupModal}
         onOpenChange={setShowSignupModal}
