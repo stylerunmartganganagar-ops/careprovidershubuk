@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Card, CardContent } from '../components/ui/card';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { AlertCircle, Building2, Shield } from 'lucide-react';
+import brandLogo from '@/assets/Screenshot_2026-03-09_212602-removebg-preview.png';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -97,9 +98,15 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-black/20" />
         <div className="relative z-10 flex flex-col justify-center items-center text-white p-12">
           <div className="max-w-md text-center">
-            <div className="mb-8">
-              <Building2 className="h-16 w-16 mx-auto mb-4 text-white/90" />
-              <h1 className="text-4xl font-bold mb-2">CareProviders Hub</h1>
+            <div className="mb-8 flex flex-col items-center">
+              <img
+                src={brandLogo}
+                alt="CareProviders Hub logo"
+                className="h-20 w-auto drop-shadow-xl"
+                loading="eager"
+                decoding="async"
+              />
+              <h1 className="mt-4 text-4xl font-bold mb-2">CareProviders Hub</h1>
               <p className="text-xl text-blue-100">Connecting Care Providers</p>
             </div>
             <div className="space-y-4 text-lg">
@@ -124,7 +131,13 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           {/* Mobile logo - only show on mobile */}
           <div className="lg:hidden text-center">
-            <Building2 className="h-12 w-12 mx-auto mb-4 text-blue-600" />
+            <img
+              src={brandLogo}
+              alt="CareProviders Hub logo"
+              className="mx-auto mb-4 h-14 w-auto drop-shadow"
+              loading="lazy"
+              decoding="async"
+            />
             <h1 className="text-2xl font-bold text-gray-900">CareProviders Hub</h1>
           </div>
 

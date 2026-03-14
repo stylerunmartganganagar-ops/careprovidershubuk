@@ -61,11 +61,17 @@ const getCategoryIcon = (categoryName: string) => {
   return iconMap[categoryName] || Briefcase;
 };
 
+type ActionableLandingSectionsProps = {
+  categories: CategoryWithSubcategories[];
+  isAuthenticated: boolean;
+  onRequireSignup: (service?: string) => void;
+};
+
 type LandingSectionsProps = {
   categories: CategoryWithSubcategories[];
 };
 
-export function CategoryHighlights({ categories }: LandingSectionsProps) {
+export function CategoryHighlights({ categories, isAuthenticated, onRequireSignup }: ActionableLandingSectionsProps) {
   const navigate = useNavigate();
   const featured = categories.slice(0, 8);
 
@@ -85,12 +91,19 @@ export function CategoryHighlights({ categories }: LandingSectionsProps) {
               "bg-indigo-50 text-indigo-600",
               "bg-rose-50 text-rose-600",
             ];
+            const handleClick = () => {
+              if (isAuthenticated) {
+                navigate(`/searchresults?service=${encodeURIComponent(category.name)}`);
+              } else {
+                onRequireSignup(category.name);
+              }
+            };
             return (
               <button
                 key={category.id}
                 type="button"
                 className="group flex flex-col items-center gap-3 rounded-2xl border border-slate-100 px-3 py-4 text-center transition-all hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg"
-                onClick={() => navigate(`/searchresults?service=${encodeURIComponent(category.name)}`)}
+                onClick={handleClick}
               >
                 <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${accentColors[index % accentColors.length]}`}>
                   <Icon className="h-6 w-6" />
@@ -152,7 +165,7 @@ export function SocialProofSection() {
   );
 }
 
-export function FeaturedProvidersSection({ categories }: LandingSectionsProps) {
+export function FeaturedProvidersSection({ categories, isAuthenticated, onRequireSignup }: ActionableLandingSectionsProps) {
   const navigate = useNavigate();
   const cards = [
     {
@@ -198,7 +211,19 @@ export function FeaturedProvidersSection({ categories }: LandingSectionsProps) {
             <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Trusted specialists for care businesses</h2>
             <p className="mt-3 max-w-2xl text-slate-500">Mock showcase cards for now, styled to support the redesign while still routing users into the live search experience.</p>
           </div>
-          <Button variant="outline" className="rounded-full px-6" onClick={() => navigate("/searchresults")}>Browse all services</Button>
+          <Button
+            variant="outline"
+            className="rounded-full px-6"
+            onClick={() => {
+              if (isAuthenticated) {
+                navigate("/searchresults");
+              } else {
+                onRequireSignup();
+              }
+            }}
+          >
+            Browse all services
+          </Button>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((card) => (
@@ -218,7 +243,16 @@ export function FeaturedProvidersSection({ categories }: LandingSectionsProps) {
                   </div>
                   <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{card.metric}</span>
                 </div>
-                <Button className="mt-6 w-full rounded-xl" onClick={() => navigate(`/searchresults?service=${encodeURIComponent(card.service)}`)}>
+                <Button
+                  className="mt-6 w-full rounded-xl"
+                  onClick={() => {
+                    if (isAuthenticated) {
+                      navigate(`/searchresults?service=${encodeURIComponent(card.service)}`);
+                    } else {
+                      onRequireSignup(card.service);
+                    }
+                  }}
+                >
                   View matches
                 </Button>
               </CardContent>
@@ -348,7 +382,8 @@ export function ProviderCtaSection() {
   );
 }
 
-export function ExploreCategoriesSection({ categories }: LandingSectionsProps) {
+export function ExploreCategoriesSection({ categories, isAuthenticated, onRequireSignup }: ActionableLandingSectionsProps) {
+  const navigate = useNavigate();
   const topCategories = categories.slice(0, 6);
 
   return (
@@ -360,8 +395,18 @@ export function ExploreCategoriesSection({ categories }: LandingSectionsProps) {
             <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Explore services built for the care sector</h2>
             <p className="mt-3 max-w-2xl text-slate-500">Using current image assets with live category data from your existing source.</p>
           </div>
-          <Button asChild variant="outline" className="rounded-full px-6">
-            <Link to="/searchresults">See all services</Link>
+          <Button
+            variant="outline"
+            className="rounded-full px-6"
+            onClick={() => {
+              if (isAuthenticated) {
+                navigate("/searchresults");
+              } else {
+                onRequireSignup();
+              }
+            }}
+          >
+            See all services
           </Button>
         </div>
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -392,11 +437,19 @@ export function ExploreCategoriesSection({ categories }: LandingSectionsProps) {
                       </span>
                     ))}
                   </div>
-                  <Button asChild variant="outline" className="mt-6 w-full rounded-xl">
-                    <Link to={`/searchresults?service=${encodeURIComponent(category.name)}`}>
-                      Explore category
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
+                  <Button
+                    variant="outline"
+                    className="mt-6 w-full rounded-xl"
+                    onClick={() => {
+                      if (isAuthenticated) {
+                        navigate(`/searchresults?service=${encodeURIComponent(category.name)}`);
+                      } else {
+                        onRequireSignup(category.name);
+                      }
+                    }}
+                  >
+                    Explore category
+                    <ArrowRight className="h-4 w-4" />
                   </Button>
                 </CardContent>
               </Card>

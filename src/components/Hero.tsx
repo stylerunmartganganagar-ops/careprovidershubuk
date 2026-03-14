@@ -48,6 +48,8 @@ export const Hero = () => {
     return suggestions.filter((suggestion) => suggestion.name.toLowerCase().includes(query)).slice(0, 8);
   }, [selectedService, suggestions]);
 
+  const hasQuery = selectedService.trim().length > 0;
+
   useEffect(() => {
     if (isAuthenticated && showSignupModal) {
       setShowSignupModal(false);
@@ -137,10 +139,15 @@ export const Hero = () => {
                     className="h-14 rounded-2xl border-0 bg-transparent pl-12 pr-4 text-base text-slate-900 shadow-none focus-visible:ring-0"
                     value={selectedService}
                     onChange={(e) => {
-                      setSelectedService(e.target.value);
-                      setShowSuggestions(true);
+                      const value = e.target.value;
+                      setSelectedService(value);
+                      setShowSuggestions(value.trim().length > 0);
                     }}
-                    onFocus={() => setShowSuggestions(true)}
+                    onFocus={() => {
+                      if (hasQuery) {
+                        setShowSuggestions(true);
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
@@ -148,8 +155,8 @@ export const Hero = () => {
                       }
                     }}
                   />
-                  {showSuggestions && !categoriesLoading && filteredSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                  {showSuggestions && hasQuery && !categoriesLoading && filteredSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 max-h-44 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
                       {filteredSuggestions.map((suggestion) => (
                         <button
                           key={suggestion.id}
